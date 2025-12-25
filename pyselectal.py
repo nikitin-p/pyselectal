@@ -11,9 +11,9 @@ MANUAL = """\
 #
 # It supports both single-end (SE) and paired-end (PE) reads.
 #
-# Input requirements:
-#
+# Input: BAM
 #   - If --paired is used, input should be name-sorted OR use --sort.
+# Output: BAM (can be "-" for stdout).
 #
 ################################################################################
 # Usage:
@@ -56,9 +56,18 @@ MANUAL = """\
 #           - Range mode: prefix must be exactly one base A/C/G/T/N.
 #
 #   -k                     (int, optional; only meaningful when n = m = 0)
-#       Number of matching bases to require at the mapped 5'-end.
-#       If k = 0 (default), require matching for the full prefix length.
-#       If --prefix is not given, require at least k MATCH bases at the 5' end (CIGAR).
+#       If --prefix is NOT given:
+#           - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
+#           - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
+#
+#       If --prefix IS given:
+#           1) if k <= len(prefix) (including k==0):
+#                 - ignore k; select ONLY by full prefix match (orientation-aware)
+#                 - emit a warning to stderr once
+#           2) if k > len(prefix):
+#               - require BOTH:
+#                   - 5'-end operation == M with M-length >= k
+#                   - full prefix match (orientation-aware)
 #
 #   -s / --sort            (optional)
 #       Name-sort input BAM internally (samtools sort -n via pysam).
@@ -191,20 +200,23 @@ def get_5prime_cigar(aln):
     return (cig[-1] if aln.is_reverse else cig[0])
 
 
-def has_5prime_mapped_exact(aln, prefix, rc_prefix, k):
+def has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=False):
     """
     Exact match mode (n = m = 0):
-      - require that the 5'-end is mapped;
-      - 3'-end soft-clips are allowed;
-      - if prefix is provided:
-          - if k == 0:
-            - require the 5'-end CIGAR operation to be MATCH;
-          - else: match first k bases of prefix
-          - forward:  SEQ starts with prefix[:k];
-          - reverse:  SEQ ends with revcomp(prefix)[:k].
-      - if prefix is None:
-          - if k==0: only the "no 5' soft-clip" condition is enforced.
-          - else: require at least k MATCH bases at 5' end (CIGAR), no sequence check
+        - require that the 5'-end is mapped;
+        - 3'-end soft-clips are allowed;#   
+    If --prefix is NOT given:
+        - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
+           - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
+
+    If --prefix IS given:
+        1) if k <= len(prefix) (including k==0):
+            - ignore k; select ONLY by full prefix match (orientation-aware)
+            - emit a warning to stderr once
+        2) if k > len(prefix):
+            - require BOTH:
+                - 5'-end operation == M with M-length >= k
+                - full prefix match (orientation-aware)
     """
     if aln.is_unmapped:
         return False
@@ -217,34 +229,37 @@ def has_5prime_mapped_exact(aln, prefix, rc_prefix, k):
 
     if len_5p is None:
         return False
+    
 
-    # If no prefix, k controls minimum 5' MATCH length only
+    # If no prefix, only enforce minimum 5' MATCH length (>=k); if k==0, any 5' M passes.
     if not prefix:
-        if k == 0:
+        if k <= 0:
             return True
         return int(len_5p) >= k
     
-    # If prefix provided, enforce sequence matching
-    if k == 0:
-        k = len(prefix)
+    # If prefix provided:
+    # Case 1: k <= len(prefix) => ignore k, select only by FULL prefix match
+    if k <= len(prefix):
+        if warn_k_ignored:
+            warn(f"-k={k} is <= len(--prefix)={len(prefix)} in mapped mode; ignoring -k and selecting only by full prefix.")
+        seq = aln.query_sequence
+        if not seq:
+            return False
+        if aln.is_reverse:
+            return seq[-len(prefix):].upper() == rc_prefix.upper()
+        return seq[:len(prefix)].upper() == prefix.upper()
 
-    if k < 0:
+    # Case 2: k > len(prefix) => require BOTH: 5' MATCH length >= k AND full prefix match
+    if len_5p < k:
         return False
-    if k > len(prefix):
-        return False
-    if int(len_5p) < k:
-        return False
-      
-    prefix_k = prefix[:k]
-    rc_prefix_k = rc_prefix[:k]
 
     seq = aln.query_sequence
     if not seq:
         return False
 
     if aln.is_reverse:
-        return seq[-k:].upper() == rc_prefix_k.upper()
-    return seq[:k].upper() == prefix_k.upper()
+        return seq[-len(prefix):].upper() == rc_prefix.upper()
+    return seq[:len(prefix)].upper() == prefix.upper()
 
 def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
     """
@@ -314,7 +329,7 @@ def has_5prime_softclip_range(aln, N, M, base=None, rc_base=None):
     return True
 
 
-def alignment_matches(aln, n, m, prefix, k):
+def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
     """
     Wrapper that dispatches to the correct mode based on n_min, n_max.
 
@@ -325,7 +340,7 @@ def alignment_matches(aln, n, m, prefix, k):
     if n == m:
         if n == 0:
             rc_prefix = revcomp(prefix) if prefix else None
-            return has_5prime_mapped_exact(aln, prefix, rc_prefix, k)
+            return has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=warn_k_ignored)
         rc_prefix = revcomp(prefix) if prefix else None
         return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
 
@@ -334,7 +349,7 @@ def alignment_matches(aln, n, m, prefix, k):
     return has_5prime_softclip_range(aln, n, m, base, rc_base)
 
 
-def process_group_pe(records, n, m, prefix, k, out_bam):
+def process_group_pe(records, n, m, prefix, k, out_bam, warn_k_ignored=False):
     """
     Paired-end mode: records = list of AlignedSegment with the same query_name.
 
@@ -350,7 +365,7 @@ def process_group_pe(records, n, m, prefix, k, out_bam):
 
     r1_selected = []
     for r in records:
-        if r.is_read1 and alignment_matches(r, n, m, prefix, k):
+        if r.is_read1 and alignment_matches(r, n, m, prefix, k, warn_k_ignored=warn_k_ignored):
             r1_selected.append(r)
 
     if not r1_selected:
@@ -371,16 +386,16 @@ def process_group_pe(records, n, m, prefix, k, out_bam):
         out_bam.write(r)
 
 
-def process_stream_se(in_bam, out_bam, n, m, prefix, k):
+def process_stream_se(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=False):
     """
     Single-end mode: filter each alignment independently.
     """
     for aln in in_bam.fetch(until_eof=True):
-        if alignment_matches(aln, n, m, prefix, k):
+        if alignment_matches(aln, n, m, prefix, k, warn_k_ignored=warn_k_ignored):
             out_bam.write(aln)
 
 
-def process_stream_pe(in_bam, out_bam, n, m, prefix, k):
+def process_stream_pe(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=False):
     """
     Paired-end mode: assumes name-sorted BAM (all alignments with the same
     query_name are contiguous).
@@ -396,12 +411,12 @@ def process_stream_pe(in_bam, out_bam, n, m, prefix, k):
         elif qn == current_qname:
             group.append(aln)
         else:
-            process_group_pe(group, n, m, prefix, k, out_bam)
+            process_group_pe(group, n, m, prefix, k, out_bam, warn_k_ignored=warn_k_ignored)
             current_qname = qn
             group = [aln]
 
     if group:
-        process_group_pe(group, n, m, prefix, k, out_bam)
+        process_group_pe(group, n, m, prefix, k, out_bam, warn_k_ignored=warn_k_ignored)
 
 
 def parse_args(argv):
@@ -413,8 +428,8 @@ def parse_args(argv):
     # Manual/help
     parser.add_argument("-h", "--help", action="store_true", help="Show the full manual and exit.")
 
-    parser.add_argument("in_bam", help="Input BAM.")
-    parser.add_argument("out_bam", help="Output BAM.")
+    parser.add_argument("in_bam", help="Input BAM path or '-' for stdin..")
+    parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
 
     parser.add_argument("-n", "--min-softclip", type=int, required=True,
                         help="Minimum 5' soft-clip length (n).")
@@ -426,8 +441,9 @@ def parse_args(argv):
 
     parser.add_argument("-k", type=int, default=0,
                         help=("Mapped mode only (n=m=0): "
-                        "If --prefix is given, require k-base prefix match (0=full prefix). "
-                        "If --prefix is not given, require at least k MATCH bases at the 5' end (CIGAR)."))
+                              "If --prefix not given: require >=k 5' MATCH bases (CIGAR). "
+                              "If --prefix given: if k<=len(prefix), k is ignored and full prefix is required; "
+                              "if k>len(prefix), require both >=k 5' MATCH bases AND full prefix."))
 
     parser.add_argument("-s", "--sort", action="store_true",
                         help="Name-sort input BAM internally (samtools sort -n via pysam).")
@@ -461,9 +477,6 @@ def parse_args(argv):
         parser.error("-k is only valid when n = m = 0 (mapped 5' mode).")
     if k < 0:
         parser.error("-k must be >= 0.")
-    # If prefix is provided in mapped mode, k cannot exceed prefix length
-    if prefix and (n == 0 and m == 0) and k > len(prefix):
-        parser.error("-k cannot exceed the length of --prefix in mapped 5' mode.")
 
     # mode-specific validation of -p/--prefix
     if n == m:
@@ -502,7 +515,7 @@ def name_sort_bam(in_bam_path, threads):
     try:
         # pysam exposes samtools sort as pysam.sort()
         if threads > 1:
-            # samtools sort thread option is -@; passthrough should work in pysam.sort
+            # samtools sort thread option is -@; passthrough in pysam.sort
             pysam.sort("-n", "-@", str(threads), "-o", tmp_path, in_bam_path, catch_stdout=False)
         else:
             pysam.sort("-n", "-o", tmp_path, in_bam_path, catch_stdout=False)
@@ -515,14 +528,54 @@ def name_sort_bam(in_bam_path, threads):
 
     return tmp_path
 
-def open_alignment_files(in_path, out_path, threads):
+def spool_stdin_to_temp_bam():
+    """
+    Copy stdin (BAM stream) to a temp file and return its path.
+    """
+    fd, tmp_path = tempfile.mkstemp(prefix="softclip5.stdin.", suffix=".bam")
+    os.close(fd)
     try:
-        if threads > 1:
-            in_bam = pysam.AlignmentFile(in_path, "rb", threads=threads)
-            out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam, threads=threads)
+        with open(tmp_path, "wb") as f:
+            # binary copy in chunks
+            while True:
+                chunk = sys.stdin.buffer.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception as e:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        die(f"Failed to spool stdin to temp BAM: {e}")
+    return tmp_path
+
+def open_alignment_files(in_path, out_path, threads):
+    """
+    Support '-' for stdin/stdout BAM streaming.
+    """
+    try:
+        if in_path == "-":
+            if threads > 1:
+                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb", threads=threads)
+            else:
+                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb")
         else:
-            in_bam = pysam.AlignmentFile(in_path, "rb")
-            out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam)
+            if threads > 1:
+                in_bam = pysam.AlignmentFile(in_path, "rb", threads=threads)
+            else:
+                in_bam = pysam.AlignmentFile(in_path, "rb")
+
+        if out_path == "-":
+            if threads > 1:
+                out_bam = pysam.AlignmentFile(sys.stdout.buffer, "wb", template=in_bam, threads=threads)
+            else:
+                out_bam = pysam.AlignmentFile(sys.stdout.buffer, "wb", template=in_bam)
+        else:
+            if threads > 1:
+                out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam, threads=threads)
+            else:
+                out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam)
     except Exception as e:
         die(f"Failed to open BAM(s): {e}")
     return in_bam, out_bam
@@ -539,22 +592,35 @@ def main(argv=None):
     k = args.k
     threads = args.threads
 
-    temp_sorted = None
+    # warn once if k will be ignored in mapped mode with prefix
+    warn_k_ignored = False
+    if (n == 0 and m == 0) and prefix and (k <= len(prefix)):
+        warn_k_ignored = True
+    
+    temp_files = []
     in_path = args.in_bam
 
+    # If input is stdin and we need to sort, spool stdin first.
+    if args.sort and in_path == "-":
+        spooled = spool_stdin_to_temp_bam()
+        temp_files.append(spooled)
+        in_path = spooled
+    
     # If paired-end mode, name sorting is required for correct grouping.
     # We only enforce via --sort; otherwise assume the user already provided name-sorted input.
+    temp_sorted = None
     if args.sort:
-        temp_sorted = name_sort_bam(args.in_bam, threads)
+        temp_sorted = name_sort_bam(in_path, threads)
+        temp_files.append(temp_sorted)
         in_path = temp_sorted
 
     in_bam, out_bam = open_alignment_files(in_path, args.out_bam, threads)
 
     try:
         if args.paired:
-            process_stream_pe(in_bam, out_bam, n, m, prefix, k)
+            process_stream_pe(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=warn_k_ignored)
         else:
-            process_stream_se(in_bam, out_bam, n, m, prefix, k)
+            process_stream_se(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=warn_k_ignored)
     finally:
         try:
             in_bam.close()
@@ -564,9 +630,9 @@ def main(argv=None):
             out_bam.close()
         except Exception:
             pass
-        if temp_sorted:
+        for p in temp_files:
             try:
-                os.remove(temp_sorted)
+                os.remove(p)
             except OSError:
                 pass
 
