@@ -25,7 +25,7 @@ Building on this approach, our tool enables general alignment filtering based on
 
 - **Python ≥ v3.6**
   - Required due to the use of f-strings.
-  - **Python ≥ v3.8** is recommended for the best compatibility with modern `pysam` [link](https://pysam.readthedocs.io/en/latest/release.html).
+  - **Python ≥ v3.8** is recommended for the best compatibility with modern `pysam` ([link](https://pysam.readthedocs.io/en/latest/release.html)).
 
 ### Python libraries
 
@@ -52,8 +52,8 @@ You can then run it directly:
 `python pyselectal.py --help`
 
 ## Usage
-`python pyselectal.py [options] in.bam out.bam`
-You can also use the script through the pipe:
+`python pyselectal.py [options] in.bam out.bam`  
+You can also use the script through the pipe:  
 ```bash
 script_1.sh \
   | python pyselectal.py [options] - - \
@@ -97,13 +97,13 @@ Reverse: all soft-clipped bases equal its complement.
 
 ## Options
 
-`-n, --min-softclip`	Minimum 5′ soft-clip length (required)
-`-m, --max-softclip`	Maximum 5′ soft-clip length (required)
-`-p, --prefix`	Prefix / base (meaning depends on mode)
-`-k`	Mapped mode only: minimum 5′ MATCH length or prefix match length
-`-s, --sort`	Internally name-sort BAM before processing
-`-t, --threads`	Number of BGZF threads (default: 1)
-`--paired`	Enable paired-end mode
+`-n, --min-softclip`	Minimum 5′ soft-clip length (required)  
+`-m, --max-softclip`	Maximum 5′ soft-clip length (required)  
+`-p, --prefix`	Prefix / base (meaning depends on mode)  
+`-k`	Mapped mode only: minimum 5′ MATCH length or prefix match length  
+`-s, --sort`	Internally name-sort BAM before processing  
+`-t, --threads`	Number of BGZF threads (default: 1)  
+`--paired`	Enable paired-end mode  
 `-h, --help`	Show full manual
 
 ## Examples
