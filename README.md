@@ -52,7 +52,9 @@ You can then run it directly:
 `python pyselectal.py --help`
 
 ## Usage
-`python pyselectal.py [options] in.bam out.bam`  
+```bash
+python pyselectal.py [options] in.bam out.bam
+```  
 You can also use the script through the pipe:  
 ```bash
 script_1.sh \
@@ -75,7 +77,7 @@ Reverse reads: soft-clipped sequence == revcomp(prefix).
 
 Require the 5′-end to be mapped (5′-end CIGAR operation = M). There are two ways to use this mode:
 
-A. Prefix-based matching (`--prefix`)
+**A.** Prefix-based matching (`--prefix`)
 Forward: read sequence starts with the full prefix
 Reverse: read sequence ends with revcomp(prefix)
 
@@ -84,7 +86,7 @@ If k <= len(prefix) (including k = 0), `-k` is ignored and selection is only by 
 If k > len(prefix), require both:
 full prefix match (as above), and at least k aligned MATCH bases at the 5′ end (CIGAR 5′ M length ≥ k).
 
-B. Length-only matching (`-k` without `--prefix`)
+**B.** Length-only matching (`-k` without `--prefix`)
 Require at least k aligned MATCH bases at the 5′-end (CIGAR 5′ M length ≥ k). No sequence content is checked.
 If k = 0, this reduces to requiring only a mapped 5′-end (5′ CIGAR op = M).
 
