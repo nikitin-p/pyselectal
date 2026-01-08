@@ -171,13 +171,13 @@ python pyselectal.py \
 
 ## Paired-end behaviour
 
-When --paired is enabled, Alignments are grouped by query_name. Only read1 (R1) is evaluated using the selected mode. 
+When `--paired` is enabled, Alignments are grouped by query_name. Only read1 (R1) is evaluated using the selected mode. 
 For each passing R1:
 - R1 is written and
 - any R2 whose (reference_id, reference_start) matches R1’s recorded mate
 coordinates is also written.
 
-Input must be name-sorted, or you must use --sort.
+Input must be name-sorted, or you must use `--sort`.
 
 ## Notes
 1. Input file must be a BAM file. SAM files are not processed.
