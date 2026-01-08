@@ -4,7 +4,7 @@ MANUAL = """\
 ################################################################################
 # softclip5 — filter reads by 5'-end soft-clipping or matched prefix
 #
-# This script filters reads in a name-sorted BAM based on their 5'-end:
+# This script filters reads in a BAM file based on their 5'-end:
 #   - presence/absence of 5'-soft-clipped bases
 #   - length of the 5'-soft-clip (exact or within a range)
 #   - optional 5'-end sequence (motif / prefix / homopolymer)
@@ -42,12 +42,12 @@ MANUAL = """\
 #           Reverse: soft-clipped seq == revcomp(prefix).
 #
 #       If n = m = 0  (mapped 5'-end):
-#           -s is a prefix at the mapped 5' end.
+#           -p is a prefix at the mapped 5' end.
 #           Forward: read sequence starts with prefix.
 #           Reverse: read sequence ends with revcomp(prefix).
 #
 #       If n < m      (range mode):
-#           -s is a single base A/C/G/T/N, defining a homopolymer.
+#           -p is a single base A/C/G/T/N, defining a homopolymer.
 #           Forward: all 5'-soft-clipped bases == base.
 #           Reverse: all 5'-soft-clipped bases == complement(base).
 #
@@ -90,9 +90,9 @@ MANUAL = """\
 #
 # 1) SE: exact 3-bp soft-clip with prefix ATG
 #
-#     python softclip5.py \
+#     python pyselectal.py \
 #         -n 3 -m 3 \
-#         -s ATG \
+#         -p ATG \
 #         in.namesort.bam \
 #         out.se.5p3S.ATG.bam
 #
@@ -101,9 +101,9 @@ MANUAL = """\
 #
 # 2) SE: mapped 5'-end, prefix ATG
 #
-#     python softclip5.py \
+#     python pyselectal.py \
 #         -n 0 -m 0 \
-#         -s ATG \
+#         -p ATG \
 #         in.namesort.bam \
 #         out.se.no5S.ATG.bam
 #
@@ -112,7 +112,7 @@ MANUAL = """\
 #
 # 3) SE: range 1–3 bp soft-clip, any prefix
 #
-#     python softclip5.py \
+#     python pyselectal.py \
 #         -n 1 -m 3 \
 #         in.namesort.bam \
 #         out.se.5p1to3S.bam
@@ -122,9 +122,9 @@ MANUAL = """\
 #
 # 4) SE: range 2–5 bp soft-clip, G homopolymer
 #
-#     python softclip5.py \
+#     python pyselectal.py \
 #         -n 2 -m 5 \
-#         -s G \
+#         -p G \
 #         in.namesort.bam \
 #         out.se.5p2to5S.Gpoly.bam
 #
@@ -133,9 +133,9 @@ MANUAL = """\
 #
 # 5) PE: exact 3-bp soft-clip with prefix on R1; output R2 mates
 #
-#     python softclip5.py \
+#     python pyselectal.py \
 #         -n 3 -m 3 \
-#         -s ATG \
+#         -p ATG \
 #         --paired \
 #         in.namesort.bam \
 #         out.pe.5p3S.ATG.bam
@@ -169,6 +169,12 @@ class HelpfulArgumentParser(argparse.ArgumentParser):
 def die(message):
     sys.stderr.write(f"Error: {message}\nUse -h for help.\n")
     raise SystemExit(2)
+
+def warn_once(key: str, message: str):
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    sys.stderr.write(f"Warning: {message}\n")
 
 def revcomp(seq: str) -> str:
     """
@@ -204,7 +210,7 @@ def has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=False):
     """
     Exact match mode (n = m = 0):
         - require that the 5'-end is mapped;
-        - 3'-end soft-clips are allowed;#   
+        - 3'-end soft-clips are allowed;
     If --prefix is NOT given:
         - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
            - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
@@ -241,7 +247,7 @@ def has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=False):
     # Case 1: k <= len(prefix) => ignore k, select only by FULL prefix match
     if k <= len(prefix):
         if warn_k_ignored:
-            warn(f"-k={k} is <= len(--prefix)={len(prefix)} in mapped mode; ignoring -k and selecting only by full prefix.")
+            warn_once("k_ignored", f"-k={k} is <= len(--prefix)={len(prefix)} in mapped mode; ignoring -k and selecting only by full prefix.")
         seq = aln.query_sequence
         if not seq:
             return False
@@ -287,7 +293,7 @@ def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
         return seq[-n:].upper() == rc_prefix.upper()
     return seq[:n].upper() == prefix.upper()
 
-def has_5prime_softclip_range(aln, N, M, base=None, rc_base=None):
+def has_5prime_softclip_range(aln, n, m, base=None, rc_base=None):
     """
     Range mode: n < m:
 
@@ -333,7 +339,7 @@ def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
     """
     Wrapper that dispatches to the correct mode based on n_min, n_max.
 
-      if n == m > 0 > 0, then: exact soft-clip regime with optional sequence.
+      if n == m > 0, then: exact soft-clip regime with optional sequence.
       if n == m == 0,    then: mapped 5'-end regime with optional prefix.
       if n < m,          then: range soft-clip regime with optional homopolymer base.
     """
@@ -420,6 +426,11 @@ def process_stream_pe(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=False):
 
 
 def parse_args(argv):
+
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("-h", "--help", action="store_true")
+    pre_args, _ = pre.parse_known_args(argv)
+
     parser = HelpfulArgumentParser(
         add_help=False,
         description="Filter BAM alignments by 5'-end soft-clipping / mapped-prefix pattern."
@@ -428,7 +439,7 @@ def parse_args(argv):
     # Manual/help
     parser.add_argument("-h", "--help", action="store_true", help="Show the full manual and exit.")
 
-    parser.add_argument("in_bam", help="Input BAM path or '-' for stdin..")
+    parser.add_argument("in_bam", help="Input BAM path or '-' for stdin.")
     parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
 
     parser.add_argument("-n", "--min-softclip", type=int, required=True,
@@ -454,6 +465,11 @@ def parse_args(argv):
     parser.add_argument("--paired", action="store_true",
                         help="Paired-end mode: select read1 and emit matching read2 mates.")
 
+    if pre_args.help or len(argv) == 0:
+        sys.stdout.write(MANUAL)
+        parser.print_help(sys.stdout)
+        raise SystemExit(0)
+    
     args = parser.parse_args(argv)
 
     if args.help:
@@ -602,6 +618,7 @@ def main(argv=None):
 
     # If input is stdin and we need to sort, spool stdin first.
     if args.sort and in_path == "-":
+        # in_path only, remove spooled
         spooled = spool_stdin_to_temp_bam()
         temp_files.append(spooled)
         in_path = spooled
@@ -630,6 +647,7 @@ def main(argv=None):
             out_bam.close()
         except Exception:
             pass
+        # temp_files is needed for removing temporary files
         for p in temp_files:
             try:
                 os.remove(p)

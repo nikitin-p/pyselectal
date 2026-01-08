@@ -57,16 +57,16 @@ python pyselectal.py [options] in.bam out.bam
 ```  
 You can also use the script through the pipe:  
 ```bash
-script_1.sh \
-  | python pyselectal.py [options] - - \
-  | script_2.sh > output.file
+script_1.sh | \
+  python pyselectal.py [options] - - | \
+  script_2.sh > output.file
 ```
 
 ### Modes of operation
 
 The behaviour is determined by the relationship between `-n` and `-m`.
 
-#### Mode 1 — Exact 5′ soft-clip (n = m > 0)
+#### Mode 1 – Exact 5′ soft-clip (n = m > 0)
 
 Require an exact n-bp 5′ soft-clip. Optional `--prefix` of length n must match the soft-clipped sequence.
 
@@ -180,9 +180,10 @@ coordinates is also written.
 Input must be name-sorted, or you must use --sort.
 
 ## Notes
-1. Unmapped reads are always rejected
-2. 3′-soft-clipping is ignored (only the 5′-end matters)
-3. Internal sorting uses samtools sort -n via pysam.sort
+1. Input file must be a BAM file. SAM files are not processed.
+2. Unmapped reads are always rejected
+3. 3′-soft-clipping is ignored (only the 5′-end matters)
+4. Internal sorting uses samtools sort -n via pysam.sort
 
 ## Test data
 
