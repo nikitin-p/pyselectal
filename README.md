@@ -53,8 +53,7 @@ You can then run it directly:
 
 ## Usage
 
-This script is designed to work with BAM files generated using local alignment modes, specifically [STAR](https://github.com/alexdobin/STAR) with the
-
+This script is designed to work with BAM files generated using local alignment modes, specifically [STAR](https://github.com/alexdobin/STAR) with the</br>
 `--alignEndsType Local` option, or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with the`--local` option.
 
 ```bash
