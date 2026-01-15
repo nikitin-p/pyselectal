@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 
 MANUAL = """\
-################################################################################
-# softclip5 — filter reads by 5'-end soft-clipping or matched prefix
-#
-# This script filters reads in a BAM file based on their 5'-end:
-#   - presence/absence of 5'-soft-clipped bases
-#   - length of the 5'-soft-clip (exact or within a range)
-#   - optional 5'-end sequence (motif / prefix / homopolymer)
-#
-# It supports both single-end (SE) and paired-end (PE) reads.
-#
-# Input: BAM
-#   - If --paired is used, input should be name-sorted OR use --sort.
-# Output: BAM (can be "-" for stdout).
-#
+pyselectal — filter alignments by 5'-end soft-clipping or matched prefix
+
+Complete manual: https://github.com/nikitin-p/pyselectal
+
+This script filters reads in a BAM file based on their 5'-end:
+    - presence/absence of 5'-soft-clipped bases
+    - length of the 5'-soft-clip (exact or within a range)
+    - optional 5'-end sequence (motif / prefix / homopolymer)
+
+It supports both single-end (SE) and paired-end (PE) reads.
+If --paired is used, input should be name-sorted OR use --sort.
+"""
 ################################################################################
 # Usage:
 #
-#     python softclip5.py [options] in.namesort.bam out.bam
+#     python pyselectal.py [options] in.namesort.bam out.bam
 #
 ################################################################################
 # Options:
@@ -98,7 +96,6 @@ MANUAL = """\
 #
 #   Keeps reads with exact 3 bp 5'-soft-clip and soft-clipped prefix ATG/CAT.
 #
-#
 # 2) SE: mapped 5'-end, prefix ATG
 #
 #     python pyselectal.py \
@@ -109,7 +106,6 @@ MANUAL = """\
 #
 #   Keeps reads with no 5'-soft-clip and mapped prefix ATG (or CAT on reverse).
 #
-#
 # 3) SE: range 1–3 bp soft-clip, any prefix
 #
 #     python pyselectal.py \
@@ -118,7 +114,6 @@ MANUAL = """\
 #         out.se.5p1to3S.bam
 #
 #   Keeps reads with 1–3 bp 5'-soft-clip.
-#
 #
 # 4) SE: range 2–5 bp soft-clip, G homopolymer
 #
@@ -129,7 +124,6 @@ MANUAL = """\
 #         out.se.5p2to5S.Gpoly.bam
 #
 #   Keeps reads with 2–5 bp soft-clip that is all G (or C on reverse).
-#
 #
 # 5) PE: exact 3-bp soft-clip with prefix on R1; output R2 mates
 #
@@ -150,7 +144,6 @@ MANUAL = """\
 #   - Unmapped reads are always rejected.
 #
 ################################################################################
-"""
 
 import argparse
 import os
@@ -437,7 +430,7 @@ def parse_args(argv):
     )
 
     # Manual/help
-    parser.add_argument("-h", "--help", action="store_true", help="Show the full manual and exit.")
+    parser.add_argument("-h", "--help", action="store_true", help="Show the manual and exit.")
 
     parser.add_argument("in_bam", help="Input BAM path or '-' for stdin.")
     parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
