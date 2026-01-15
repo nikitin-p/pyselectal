@@ -12,6 +12,7 @@ This script filters reads in a BAM file based on their 5'-end:
 
 It supports both single-end (SE) and paired-end (PE) reads.
 If --paired is used, input should be name-sorted OR use --sort.
+
 """
 ################################################################################
 # Usage:
