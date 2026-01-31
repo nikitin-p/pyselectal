@@ -66,14 +66,14 @@ tool_1 | \
 ## Options
 
 `-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).<br>  
-`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required). 
-`-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).
-`-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.
-`-s, --sort`	Internally name-sort the input BAM file before processing via pysam.sort.
-`-t, --threads`	Use the specified number of BGZF compression/decompression threads (default: 1).
-`-p, --paired`	Indicate that the input alignments are paired-end reads; by default, the program assumes single-end read alignments.
-`-h, --help`	Display the full manual and exit.
-`-v, --version` Print the program version and exit.
+`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required).<br>  
+`-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).<br> 
+`-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.<br> 
+`-s, --sort`	Internally name-sort the input BAM file before processing via pysam.sort.<br> 
+`-t, --threads`	Use the specified number of BGZF compression/decompression threads (default: 1).<br> 
+`-p, --paired`	Indicate that the input alignments are paired-end reads; by default, the program assumes single-end read alignments.<br> 
+`-h, --help`	Display the full manual and exit.<br> 
+`-v, --version` Print the program version and exit.<br> 
 
 ### Modes of operation
 
