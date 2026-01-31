@@ -65,7 +65,7 @@ tool_1 | \
 
 ## Options
 
-`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).  
+`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).<br>  
 `-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required). 
 `-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).
 `-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.
