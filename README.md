@@ -65,8 +65,8 @@ tool_1 | \
 
 ## Options
 
-`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).<br>  
-`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required).<br>  
+`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).<br> 
+`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required).<br> 
 `-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).<br> 
 `-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.<br> 
 `-s, --sort`	Internally name-sort the input BAM file before processing via pysam.sort.<br> 
@@ -119,7 +119,7 @@ If `--prefix` is provided, it must be a single base (A, C, G, T, or N).
 Plus strand alignments: all 5′ soft-clipped bases equal the specified base.
 Minus strand alignments: all 5′ soft-clipped bases equal the complement of that base.
 
-## Paired-end behaviour
+### Paired-end behaviour
 
 When `--paired` is enabled, input alignments are treated as paired-end reads and are grouped by query_name.
 Selection is applied only to forward reads (read 1, R1) according to the chosen mode.
