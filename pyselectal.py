@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+VERSION = "pyselectal v1.0"
+
 MANUAL = """\
 pyselectal — filter alignments by 5'-end soft-clipping or matched prefix
 
@@ -33,20 +35,20 @@ If --paired is used, input should be name-sorted OR use --sort.
 #       2) Mapped 5'-end (no S)                 : n = m = 0
 #       3) Soft-clip of length within a range   : n < m
 #
-#   -p / --prefix          (optional, meaning depends on mode)
+#   -x / --prefix          (optional, meaning depends on mode)
 #
 #       If n = m > 0  (exact soft-clip):
-#           -p is a prefix of length n.
+#           -x is a prefix of length n.
 #           Forward: soft-clipped seq == prefix.
 #           Reverse: soft-clipped seq == revcomp(prefix).
 #
 #       If n = m = 0  (mapped 5'-end):
-#           -p is a prefix at the mapped 5' end.
+#           -x is a prefix at the mapped 5' end.
 #           Forward: read sequence starts with prefix.
 #           Reverse: read sequence ends with revcomp(prefix).
 #
 #       If n < m      (range mode):
-#           -p is a single base A/C/G/T/N, defining a homopolymer.
+#           -x is a single base A/C/G/T/N, defining a homopolymer.
 #           Forward: all 5'-soft-clipped bases == base.
 #           Reverse: all 5'-soft-clipped bases == complement(base).
 #
@@ -54,7 +56,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #           - Exact mode: prefix length must equal n.
 #           - Range mode: prefix must be exactly one base A/C/G/T/N.
 #
-#   -k                     (int, optional; only meaningful when n = m = 0)
+#   -k / --match          (int, optional; only meaningful when n = m = 0)
 #       If --prefix is NOT given:
 #           - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
 #           - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
@@ -75,7 +77,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #   -t / --threads         (optional, default: 1)
 #       Number of threads for pysam I/O (BGZF compression/decompression).
 #
-#   --paired               (optional)
+#   -p / --paired          (optional)
 #       Turn on paired-end mode:
 #           - Group reads by query_name.
 #           - Evaluate only read1 (R1) by 5'-end rules.
@@ -91,7 +93,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #
 #     python pyselectal.py \
 #         -n 3 -m 3 \
-#         -p ATG \
+#         -x ATG \
 #         in.namesort.bam \
 #         out.se.5p3S.ATG.bam
 #
@@ -101,7 +103,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #
 #     python pyselectal.py \
 #         -n 0 -m 0 \
-#         -p ATG \
+#         -x ATG \
 #         in.namesort.bam \
 #         out.se.no5S.ATG.bam
 #
@@ -120,7 +122,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #
 #     python pyselectal.py \
 #         -n 2 -m 5 \
-#         -p G \
+#         -x G \
 #         in.namesort.bam \
 #         out.se.5p2to5S.Gpoly.bam
 #
@@ -130,7 +132,7 @@ If --paired is used, input should be name-sorted OR use --sort.
 #
 #     python pyselectal.py \
 #         -n 3 -m 3 \
-#         -p ATG \
+#         -x ATG \
 #         --paired \
 #         in.namesort.bam \
 #         out.pe.5p3S.ATG.bam
@@ -423,7 +425,12 @@ def parse_args(argv):
 
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("-h", "--help", action="store_true")
+    pre.add_argument("-v", "--version", action="store_true")
     pre_args, _ = pre.parse_known_args(argv)
+
+    if pre_args.version:
+        sys.stdout.write(f"{VERSION}\n")
+        raise SystemExit(0)
 
     parser = HelpfulArgumentParser(
         add_help=False,
@@ -432,7 +439,8 @@ def parse_args(argv):
 
     # Manual/help
     parser.add_argument("-h", "--help", action="store_true", help="Show the manual and exit.")
-
+    parser.add_argument("-v", "--version", action="store_true",
+                        help="Print version information and exit.")
     parser.add_argument("in_bam", help="Input BAM path or '-' for stdin.")
     parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
 
@@ -441,10 +449,10 @@ def parse_args(argv):
     parser.add_argument("-m", "--max-softclip", type=int, required=True,
                         help="Maximum 5' soft-clip length (m).")
 
-    parser.add_argument("-p", "--prefix", type=str, default=None,
+    parser.add_argument("-x", "--prefix", type=str, default=None,
                         help="Optional prefix/base (meaning depends on mode; see -h).")
 
-    parser.add_argument("-k", type=int, default=0,
+    parser.add_argument("-k", "--match", type=int, default=0,
                         help=("Mapped mode only (n=m=0): "
                               "If --prefix not given: require >=k 5' MATCH bases (CIGAR). "
                               "If --prefix given: if k<=len(prefix), k is ignored and full prefix is required; "
@@ -456,7 +464,7 @@ def parse_args(argv):
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Number of BGZF threads for pysam I/O.")
 
-    parser.add_argument("--paired", action="store_true",
+    parser.add_argument("-p", "--paired", action="store_true",
                         help="Paired-end mode: select read1 and emit matching read2 mates.")
 
     if pre_args.help or len(argv) == 0:
@@ -488,7 +496,7 @@ def parse_args(argv):
     if k < 0:
         parser.error("-k must be >= 0.")
 
-    # mode-specific validation of -p/--prefix
+    # mode-specific validation of -x/--prefix
     if n == m:
         if n == 0:
             # mapped mode: prefix can be any length if provided
