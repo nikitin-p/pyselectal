@@ -121,15 +121,15 @@ Minus strand alignments: all 5′ soft-clipped bases equal the complement of tha
 
 ### Paired-end behaviour
 
-When `--paired` is enabled, input alignments are treated as paired-end reads and are grouped by query_name.
+When `--paired` is enabled, input alignments are treated as paired-end reads and are grouped by `query_name`.
 Selection is applied only to forward reads (read 1, R1) according to the chosen mode.
 
 For each R1 that passes the selection criteria:
 
 the R1 alignment is written to the output, and
-any corresponding reverse read (R2) whose (reference_id, reference_start) matches the mate coordinates recorded in R1 is also written.
+any corresponding reverse read (R2) whose (`reference_id`, `reference_start`) matches the mate coordinates recorded in R1 is also written.
 
-Input alignments must be name-sorted; otherwise, internal name sorting must be enabled using --sort.
+Input alignments must be name-sorted; otherwise, internal name sorting must be enabled using `--sort`.
 
 ## Examples
 **1. Single-end CAGE ([Murata *et al.*, 2014](https://link.springer.com/protocol/10.1007/978-1-4939-0805-9_7)).** Select alignments that have an exact 1-bp soft-clip at the 5′-end with prefix G.
@@ -239,7 +239,7 @@ Single-end test BAM containing a curated set of alignments with diverse 5′-end
 
 ### `test_softclip_pe.bam`
 
-Paired-end test BAM designed specifically for paired-end mode (--paired):
+Paired-end test BAM designed specifically for paired-end mode (`--paired`):
 - Alignments are grouped by query name, representing paired-end fragments
 - For each fragment, selection criteria are evaluated exclusively on read1 (R1)
 - Corresponding read2 (R2) alignments are fully mapped and included only if their R1 counterpart satisfies the selection criteria
