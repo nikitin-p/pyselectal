@@ -132,23 +132,52 @@ any corresponding reverse read (R2) whose (reference_id, reference_start) matche
 Input alignments must be name-sorted; otherwise, internal name sorting must be enabled using --sort.
 
 ## Examples
-**1. Single-end:** exact 3-bp soft-clip with prefix ATG.
+**1. Single-end CAGE ([Murata *et al.*, 2014](https://link.springer.com/protocol/10.1007/978-1-4939-0805-9_7)).** Select alignments that have an exact 1-bp soft-clip at the 5′-end with prefix G.
+```bash
+pyselectal.py \
+    -n 1 -m 1 \
+    -x G \
+    in.bam out.bam
+```
+
+**2. Paired-end CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments such that R1 has an exact 3-bp soft-clip at the 5′-end with prefix GGG, and include the corresponding R2 mates.
 ```bash
 pyselectal.py \
     -n 3 -m 3 \
-    -x ATG \
+    -x GGG \
+    --paired \
+    --sort \
     in.bam out.bam
 ```
 
-**2. Single-end:** mapped 5′-end with prefix ATG.
+**3. Paired-end CAGEscan.** Select paired-end alignments such that R1 has a 5′ soft-clip of length 1–3 bp of a G homopolymer, and include the corresponding R2 mates.
+```bash
+pyselectal.py \
+    -n 1 -m 3 \
+    -x G \
+    --paired \
+    --sort \
+    in.bam out.bam
+```
+
+
+**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with prefix A, corresponding to metabolic caps or unencoded cap-dependent A (NAD).
+```bash
+pyselectal.py \
+    -n 1 -m 1 \
+    -x A \
+    in.bam out.bam
+```
+
+**5. Single-end.** Select alignments that have a mapped 5′-end with prefix GG.
 ```bash
 pyselectal.py \
     -n 0 -m 0 \
-    -x ATG \
+    -x GG \
     in.bam out.bam
 ```
 
-**3. Single-end:** mapped 5′-end with at least 10 aligned bases (no sequence check).
+**6. Single-end.** Select alignments that have at least 10 aligned bases at the 5′-end, without applying any sequence constraint.
 ```bash
 pyselectal.py \
     -n 0 -m 0 \
@@ -156,7 +185,7 @@ pyselectal.py \
     in.bam out.bam
 ```
 
-**4. Single-end:** 2–5 bp soft-clip, G homopolymer.
+**7. Single-end.** Select alignments that have a 5′ soft-clip of length 2–5 bp composed of a G homopolymer.
 ```bash
 pyselectal.py \
     -n 2 -m 5 \
@@ -164,26 +193,7 @@ pyselectal.py \
     in.bam out.bam
 ```
 
-**5. Paired-end:** exact 3-bp soft-clip on R1, emit matching R2 mates.
-```bash
-pyselectal.py \
-    -n 3 -m 3 \
-    -x ATG \
-    --paired \
-    --sort \
-    in.bam out.bam
-```
-
-**6. Single-end:** Prefix given, k ignored because k <= len(prefix).
-```bash
-pyselectal.py \
-    -n 0 -m 0 \
-    -x ATGC \
-    -k 3 \
-    in.bam out.bam
-```
-
-**7. Single-end:** Prefix given, and additionally require at least 20 mapped bases at 5′-end.
+**8. Single-end.** Select alignments that have the specified prefix at the 5′-end and at least 20 aligned bases at the 5′-end.
 ```bash
 pyselectal.py \
     -n 0 -m 0 \
@@ -192,39 +202,56 @@ pyselectal.py \
     in.bam out.bam
 ```
 
+**9. Single-end.** Select alignments that have the specified prefix at the 5′ end; the -k parameter is ignored because k is shorter than the prefix length.
+```bash
+pyselectal.py \
+    -n 0 -m 0 \
+    -x ATGC \
+    -k 3 \
+    in.bam out.bam
+```
+
+**10. Paired-end.** Select paired-end alignments such that R1 has an exact 1-bp soft-clip at the 5′ end with prefix G, and include the corresponding R2 mates.
+```bash
+pyselectal.py \
+    -n 1 -m 1 \
+    -x G \
+    --paired \
+    --sort \
+    in.bam out.bam
+```
+
 ## Test data
 
 The repository includes small, synthetic BAM files under `testdata/` that are
-designed to **test all major modes of `pyselectal`**.  
-These files are intended for **functional testing, debugging, and examples**,
-not for benchmarking or performance evaluation.
+designed for **functional testing of `pyselectal`**.  
+These files are intended for testing, debugging, and illustrating tool behaviour, not for benchmarking or performance evaluation.
 
 ### `test_softclip_se.bam`
 
-Single-end test BAM containing alignments with diverse 5′-end configurations:
+Single-end test BAM containing a curated set of alignments with diverse 5′-end configurations:
 
-- Exact 5′ soft-clips of varying lengths (`1S`, `2S`, `3S`, `4S`)
-- Alignments with **mapped 5′-ends** and **3′ soft-clips**
-- Plus and minus strand alignments
-- Homopolymer soft-clips (`G` / `C`) suitable for range mode testing
-- Multi-mapping reads (`NH:i:2`, `HI:i:*`) to verify that filtering is purely
-  CIGAR- and sequence-based
+- Alignments with exact 5′ soft-clips of varying lengths (`1S`, `2S`, `3S`, `4S`)
+- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**
+- Alignments on both plus and minus strands
+- Homopolymer soft-clips (`G` / `C`), suitable for testing range-based selection
+- Multiple alignments per query, to ensure selection depends only on CIGAR structure and sequence content, and not on mapping multiplicity
 
 ### `test_softclip_pe.bam`
 
 Paired-end test BAM designed specifically for paired-end mode (--paired):
-- Read pairs are grouped by query_name
-- Only read1 (R1) carries the relevant 5′ soft-clip or mapped pattern
-- Corresponding read2 (R2) alignments are fully mapped
+- Alignments are grouped by query name, representing paired-end fragments
+- For each fragment, selection criteria are evaluated exclusively on read1 (R1)
+- Corresponding read2 (R2) alignments are fully mapped and included only if their R1 counterpart satisfies the selection criteria
 
-Multiple scenarios include:
-- exact 5′ soft-clips on R1
-- range soft-clips on R1
-- mapped 5′ ends on R1
-- cases where R1 has multiple alignments
-- cases with multiple R2 candidates
+The file includes explicit paired-end scenarios such as:
+- Fragments where R1 has an exact 5′ soft-clip
+- Fragments where R1 has a 5′ soft-clip within a specified length range
+- Fragments where R1 has a mapped 5′ end matching a given prefix
+- Fragments where R1 has multiple alternative alignments
+- Fragments where a selected R1 alignment is associated with more than one valid R2 alignment, testing correct mate inclusion
 
-Test BAMs are deliberately small and manually inspectable with:
+Test BAMs are deliberately small and can be manually inspected with:
 ```bash
 samtools view testdata/test_softclip_se.bam
 samtools view testdata/test_softclip_pe.bam
