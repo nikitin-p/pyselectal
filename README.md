@@ -140,7 +140,7 @@ pyselectal.py \
     in.bam out.bam
 ```
 
-**2. Paired-end CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments such that R1 has an exact 3-bp soft-clip at the 5′-end with prefix GGG, and include the corresponding R2 mates.
+**2. CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments such that R1 has an exact 3-bp soft-clip at the 5′-end with prefix GGG, and include the corresponding R2 mates.
 ```bash
 pyselectal.py \
     -n 3 -m 3 \
@@ -161,7 +161,7 @@ pyselectal.py \
 ```
 
 
-**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with prefix A, corresponding to metabolic caps or unencoded cap-dependent A (NAD).
+**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with a prefix A that may occasionally correspond to the canonical m<sup>7</sup>G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335)). Additionally, based on the fact that Because an 
 ```bash
 pyselectal.py \
     -n 1 -m 1 \
