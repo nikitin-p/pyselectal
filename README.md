@@ -161,7 +161,7 @@ pyselectal.py \
 ```
 
 
-**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with a prefix A that may occasionally correspond to the canonical m<sup>7</sup>G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335)). Additionally, based on the fact that Because an 
+**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with a prefix A that may occasionally correspond to the canonical m<sup>7</sup>G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335)).
 ```bash
 pyselectal.py \
     -n 1 -m 1 \
