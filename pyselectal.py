@@ -483,7 +483,7 @@ def parse_args(argv):
     n = args.min_softclip
     m = args.max_softclip
     prefix = args.prefix
-    k = args.k
+    k = args.match
 
     if n < 0 or m < 0:
         parser.error("Both n and m must be non-negative integers.")
@@ -607,7 +607,7 @@ def main(argv=None):
     n = args.min_softclip
     m = args.max_softclip
     prefix = args.prefix
-    k = args.k
+    k = args.match
     threads = args.threads
 
     # warn once if k will be ignored in mapped mode with prefix
