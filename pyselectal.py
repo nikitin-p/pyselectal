@@ -157,6 +157,8 @@ import pysam
 SOFT = 4   # 'S' soft-clip in pysam CIGAR codes
 MATCH = 0  # 'M' (alignment match) in pysam CIGAR codes
 
+_WARNED = set()
+
 class HelpfulArgumentParser(argparse.ArgumentParser):
     def error(self, message):
         sys.stderr.write(f"Error: {message}\nUse -h for help.\n")
