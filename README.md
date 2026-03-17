@@ -65,8 +65,10 @@ tool_1 | \
 
 ## Options
 
-`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (required).<br> 
-`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (required).<br> 
+**Important:** At least one of `-n` or `-m` must be specified.<br> 
+
+`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (optional). If missing, n=0 by default.<br> 
+`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (optional). If missing, there is no upper bound (i.e., any number of soft-clipped bases above the minimum is allowed).<br> 
 `-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).<br> 
 `-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.<br> 
 `-s, --sort`	Internally name-sort the input BAM file before processing via pysam.sort.<br> 
@@ -255,4 +257,20 @@ Test BAMs are deliberately small and can be manually inspected with:
 ```bash
 samtools view testdata/test_softclip_se.bam
 samtools view testdata/test_softclip_pe.bam
+```
+
+We also provide test data to help users verify the installation and functionality of the pipeline. The repository includes three small FASTQ files that can be used to test the mapping step and the overall workflow of the script, including the filtering of the resulting BAM file. The subset data are derived from the human LUHMES cell line at 1, 3, and 6 days of neuronal differentiation ([Yoshihara *et al.*, 2025](https://link.springer.com/article/10.1038/s44319-025-00372-1)).
+
+Example usage:
+```bash
+STAR \
+  --runThreadN 20 \
+  --genomeDir star_index \
+  --readFilesIn testdata/luhmesDay1Rep1_NETCAGE_subsample_L001_R1_001.fastq.gz \
+  --outSAMtype BAM Unsorted \
+  --readFilesCommand gunzip -c \
+  --alignEndsType Local \
+  --outSAMunmapped Within | \
+    pyselectal.py [options] - \
+    luhmesDay1Rep1_NETCAGE_subsample_filtered_L001_R1_001.fastq.gz
 ```
