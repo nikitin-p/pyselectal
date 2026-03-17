@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-VERSION = "pyselectal v1.0"
+VERSION = "pyselectal v1.1"
 
 MANUAL = """\
 pyselectal — filter alignments by 5'-end soft-clipping or matched prefix
@@ -24,10 +24,11 @@ If --paired is used, input should be name-sorted OR use --sort.
 ################################################################################
 # Options:
 #
-#   -n / --min-softclip      (int, required)
+#   At least one of -n or -m must be specified.
+#   -n / --min-softclip      (int, optional)
 #       Minimum number of 5'-soft-clipped bases.
 #
-#   -m / --max-softclip      (int, required)
+#   -m / --max-softclip      (int, optional)
 #       Maximum number of 5'-soft-clipped bases.
 #
 #   Together, -n and -m define the mode:
@@ -295,7 +296,9 @@ def has_5prime_softclip_range(aln, n, m, base=None, rc_base=None):
     """
     Range mode: n < m:
 
-      - require a 5' soft-clip of length x where n <= x <= m;
+      - require a 5' soft-clip of length x where:
+            x >= n
+            and (if m is not None) x <= m
       - if base is None: only length is used;
       - if base is provided (single letter A/C/G/T/N):
           forward: all soft-clipped bases == base
@@ -310,7 +313,9 @@ def has_5prime_softclip_range(aln, n, m, base=None, rc_base=None):
         return False
 
     x = int(len_5p)
-    if x < n or x > m:
+    if x < n:
+        return False
+    if m is not None and x > m:
         return False
 
     if not base:
@@ -337,17 +342,21 @@ def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
     """
     Wrapper that dispatches to the correct mode based on n_min, n_max.
 
-      if n == m > 0, then: exact soft-clip regime with optional sequence.
-      if n == m == 0,    then: mapped 5'-end regime with optional prefix.
-      if n < m,          then: range soft-clip regime with optional homopolymer base.
+      if n == m > 0 and m is not None,   then: exact soft-clip regime with optional sequence.
+      if n == m == 0,                    then: mapped 5'-end regime with optional prefix.
+      if n < m (including m is None),    then: range soft-clip regime with optional homopolymer base.
     """
-    if n == m:
-        if n == 0:
-            rc_prefix = revcomp(prefix) if prefix else None
-            return has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=warn_k_ignored)
+    # mapped 5'-end regime
+    if n == 0 and m == 0:
+        rc_prefix = revcomp(prefix) if prefix else None
+        return has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=warn_k_ignored)
+
+    # exact soft-clip regime only if m is provided and equals n (>0)
+    if m is not None and n == m and n > 0:
         rc_prefix = revcomp(prefix) if prefix else None
         return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
 
+    # range regime (includes unbounded top if m is None)
     base = prefix.upper() if prefix else None
     rc_base = comp_base(base) if base else None
     return has_5prime_softclip_range(aln, n, m, base, rc_base)
@@ -446,10 +455,10 @@ def parse_args(argv):
     parser.add_argument("in_bam", help="Input BAM path or '-' for stdin.")
     parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
 
-    parser.add_argument("-n", "--min-softclip", type=int, required=True,
-                        help="Minimum 5' soft-clip length (n).")
-    parser.add_argument("-m", "--max-softclip", type=int, required=True,
-                        help="Maximum 5' soft-clip length (m).")
+    parser.add_argument("-n", "--min-softclip", type=int, default=None,
+                        help="Minimum 5' soft-clip length (n). If missing, defaults to 0.")
+    parser.add_argument("-m", "--max-softclip", type=int, default=None,
+                        help="Maximum 5' soft-clip length (m). If missing, no upper bound (range mode).")
 
     parser.add_argument("-x", "--prefix", type=str, default=None,
                         help="Optional prefix/base (meaning depends on mode; see -h).")
@@ -482,46 +491,65 @@ def parse_args(argv):
         raise SystemExit(0)
 
     # basic checks on n, m
-    n = args.min_softclip
-    m = args.max_softclip
+    # basic checks on n, m
+    n_provided = args.min_softclip is not None
+    m_provided = args.max_softclip is not None
+
+    n = args.min_softclip if n_provided else 0
+    m = args.max_softclip if m_provided else None
+
     prefix = args.prefix
     k = args.match
 
-    if n < 0 or m < 0:
-        parser.error("Both n and m must be non-negative integers.")
-    if n > m:
+    # Safety: require at least one of -n/-m be explicitly provided
+    # (otherwise we'd select all 5' soft-clipped reads by default, which is usually accidental)
+    if not n_provided and not m_provided:
+        parser.error("At least one of -n/--min-softclip or -m/--max-softclip must be provided.")
+
+    if n < 0:
+        parser.error("n must be a non-negative integer.")
+    if m is not None and m < 0:
+        parser.error("m must be a non-negative integer.")
+
+    # If m is provided, enforce n <= m
+    if m is not None and n > m:
         parser.error("Require n <= m (min-softclip <= max-softclip).")
 
-    # -k is only meaningful when n=m=0
-    if k != 0 and not (n == 0 and m == 0):
-        parser.error("-k is only valid when n = m = 0 (mapped 5' mode).")
+    # Write back normalized values so the rest of the script uses them
+    args.min_softclip = n
+    args.max_softclip = m
+
+    # -k is only meaningful when mapped mode is explicitly selected: n=0 and m=0
     if k < 0:
         parser.error("-k must be >= 0.")
+    if k != 0 and not (n == 0 and m == 0):
+        parser.error("-k is only valid when n = 0 and m = 0 (mapped 5' mode).")
 
     # mode-specific validation of -x/--prefix
-    if n == m:
-        if n == 0:
-            # mapped mode: prefix can be any length if provided
-            pass
-        else:
-            # exact soft-clip mode: prefix length must equal n, if provided
-            if prefix is not None and len(prefix) != n:
-                parser.error(
-                    f"In exact soft-clip mode (n = m = {n}), --prefix length ({len(prefix)}) must equal n."
-                )
+    # mapped mode: n=0, m=0
+    if n == 0 and m == 0:
+        # mapped mode: prefix can be any length if provided
+        pass
+
+    # exact soft-clip mode: only when m is provided and equals n > 0
+    elif m is not None and n == m and n > 0:
+        if prefix is not None and len(prefix) != n:
+            parser.error(
+                f"In exact soft-clip mode (n = m = {n}), --prefix length ({len(prefix)}) must equal n."
+            )
+
+    # range mode: (includes m is None, or n < m)
     else:
-        # range mode: prefix is homopolymer base, if provided
         if prefix is not None:
             if len(prefix) != 1 or prefix.upper() not in "ACGTN":
                 parser.error(
-                    "In range mode (n < m), --prefix must be a single base A/C/G/T/N if provided."
+                    "In range mode, --prefix must be a single base A/C/G/T/N if provided."
                 )
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
 
     return args
-
 
 def name_sort_bam(in_bam_path, threads):
     """
@@ -614,7 +642,8 @@ def main(argv=None):
 
     # warn once if k will be ignored in mapped mode with prefix
     warn_k_ignored = False
-    if (n == 0 and m == 0) and prefix and (k <= len(prefix)):
+    mapped_mode = (n == 0 and m is not None and m == 0)
+    if mapped_mode and prefix and (k <= len(prefix)):
         warn_k_ignored = True
     
     temp_files = []
