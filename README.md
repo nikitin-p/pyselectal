@@ -1,5 +1,5 @@
 # pyselectal
-Pyselectal (Python selection of alignments) is a Python script for filtering BAM alignments by 5′-end soft-clipping length and sequence, supporting single-end and paired-end reads with exact length and range-based selection. Designed to be easily integrated into NGS processing pipelines.
+Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of the 5′-end soft-clipped or mapped sequence. It supports single-end and paired-end reads. It is designed to be easily integrated into NGS pipelines.
 
 ## Contents
 
@@ -12,9 +12,9 @@ Pyselectal (Python selection of alignments) is a Python script for filtering BAM
 
 ## Concept and motivation
 
-This tool is conceptually inspired by the alignment-level filtering strategy introduced in [Oguchi *et al.*, Science (2024)](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded G base added by the reverse transcriptase during template switching.
+This tool is conceptually inspired by the alignment filtering strategy introduced in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded G base added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′-ends, and optional sequence constraints. While method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused transcriptomics experiments, including bulk and single-cell protocols, where precise control over the 5′ alignment structure is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′-ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the 5′ alignment structure is critical for downstream analyses.
 
 ## Requirements
 
