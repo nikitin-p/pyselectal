@@ -7,6 +7,7 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Options](#options)
 - [Examples](#examples)
 - [Test data](#test-data)
 
@@ -50,13 +51,14 @@ You can then run it directly:
 
 ## Usage
 
-This script is designed to work with BAM files generated using local alignment modes, specifically [STAR](https://github.com/alexdobin/STAR) with the</br>
-`--alignEndsType Local` option, or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with the`--local` option. SAM files are not processed. Only the 5′ end of each alignment is evaluated; any 3′ soft-clipping is ignored.
+`pyselectal` takes as input BAM files containing local alignments (that is, with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. Only the 5′-end of alignments is evaluated; the 3′-end mapping pattern is ignored.
 
 ```bash
 pyselectal.py [options] in.bam out.bam
-```  
-You can also use the script through the pipe:  
+```
+
+You can also use `pyselectal` with a pipe:  
+
 ```bash
 tool_1 | \
   pyselectal.py [options] - - | \
@@ -65,7 +67,7 @@ tool_1 | \
 
 ## Options
 
-**Important:** At least one of `-n` or `-m` must be specified.<br> 
+**Important:** Either `-n`, or `-m` must be specified. 
 
 `-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (optional). If missing, n=0 by default.<br> 
 `-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (optional). If missing, there is no upper bound (i.e., any number of soft-clipped bases above the minimum is allowed).<br> 
