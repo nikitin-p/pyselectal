@@ -22,14 +22,14 @@ Building on this approach, our tool enables general alignment filtering based on
 
 - **Python ≥ v3.6**
   - Required due to the use of f-strings.
-  - **Python ≥ v3.8** is recommended for the best compatibility with modern `pysam` ([link](https://pysam.readthedocs.io/en/latest/release.html)).
+  - **Python ≥ v3.8** is recommended ([for the best compatibility with modern `pysam`](https://pysam.readthedocs.io/en/latest/release.html)).
 
 ### Python libraries
 
 - **pysam ≥ 0.15.0**
 
-`pysam 0.15.0` is the earliest version that supports the `threads=` argument in
-`pysam.AlignmentFile`, which is used for parallel BGZF compression/decompression.
+`pysam 0.15.0` is the earliest version that supports the `threads` argument in `pysam.AlignmentFile`, which is used for parallel BGZF compression/decompression. You can install `pysam` using the following command:
+
 ```bash
 pip install pysam
 ```
