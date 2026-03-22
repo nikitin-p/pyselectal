@@ -13,9 +13,9 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 
 ## Concept and motivation
 
-This tool is conceptually inspired by the alignment filtering strategy introduced in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded G base added by the reverse transcriptase during template switching.
+This tool is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded base `G` added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′-ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the 5′ alignment structure is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the 5′ alignment structure is critical for downstream analyses.
 
 ## Requirements
 
@@ -51,7 +51,7 @@ You can then run it directly:
 
 ## Usage
 
-`pyselectal` takes as input BAM files containing local alignments (that is, with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. Only the 5′-end of alignments is evaluated; the 3′-end mapping pattern is ignored.
+`pyselectal` takes a BAM file containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. The 3′-end mapping pattern is ignored.
 
 ```bash
 pyselectal.py [options] in.bam out.bam
@@ -65,19 +65,29 @@ tool_1 | \
   tool_2 > output.file
 ```
 
+where the first dash in the `pyselectal` command stands for the input file (taken from `stdin`), and the second dash stands for the output file (streamed to `stdout`).
+
 ## Options
 
 **Important:** Either `-n`, or `-m` must be specified. 
 
-`-n, --min-softclip`	Select alignments whose 5′ end has at least `n` soft-clipped bases (optional). If missing, n=0 by default.<br> 
-`-m, --max-softclip`	Select alignments whose 5′ end has at most `m` soft-clipped bases (optional). If missing, there is no upper bound (i.e., any number of soft-clipped bases above the minimum is allowed).<br> 
-`-x, --prefix`	Restrict selection to alignments whose 5′ end matches either a specific prefix sequence or a single-base homopolymer, with the exact interpretation depending on the selected mode (see details below).<br> 
-`-k, --match`	In mapped-end mode (`-n 0 -m 0`) only, require a minimum number of 5′ matched bases in the CIGAR string or require a minimum prefix length, depending on whether `--prefix` is provided.<br> 
-`-s, --sort`	Internally name-sort the input BAM file before processing via pysam.sort.<br> 
-`-t, --threads`	Use the specified number of BGZF compression/decompression threads (default: 1).<br> 
-`-p, --paired`	Indicate that the input alignments are paired-end reads; by default, the program assumes single-end read alignments.<br> 
-`-h, --help`	Display the full manual and exit.<br> 
-`-v, --version` Print the program version and exit.<br> 
+`-n, --min-softclip`	Select alignments whose 5′ end has *at least* `n` soft-clipped bases (optional). If missing, $n = 0$ by default.
+
+`-m, --max-softclip`	Select alignments whose 5′ end has *at most* `m` soft-clipped bases (optional). If missing, any number of soft-clipped bases above $n$ is allowed.
+
+`-x, --prefix`	Select alignments in which the 5′ end *of the read* matches either a specific prefix sequence, or a homopolymer (defined by a single base), with the exact interpretation depending on the selected mode (see below).
+
+`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Importantly,** bases designated in a CIGAR string as "matched" do not necessarily match the reference sequence: some of them may mismatch the respective bases in the reference, if such decisions optimized the alignment score.
+
+`-s, --sort`	Internally name-sort the input BAM file before processing (using pysam.sort).
+
+`-t, --threads`	Use the specified number of BGZF compression/decompression threads (default: 1).
+
+`-p, --paired`	Indicate that the input alignments are of paired-end reads; by default, the program assumes single-end read alignments.
+
+`-h, --help`	Display a full manual and exit.
+
+`-v, --version` Print the program version and exit.
 
 ### Modes of operation
 
