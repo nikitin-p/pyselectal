@@ -1,4 +1,5 @@
 # pyselectal
+
 Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of the 5′-end soft-clipped or mapped sequence. It supports single-end and paired-end reads. It is designed to be easily integrated into NGS pipelines.
 
 ## Contents
@@ -51,7 +52,7 @@ You can then run it directly:
 
 ## Usage
 
-`pyselectal` takes a BAM file containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. The 3′-end mapping pattern is ignored.
+`pyselectal` takes a BAM file containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
 
 ```bash
 pyselectal.py [options] in.bam out.bam
@@ -77,7 +78,7 @@ where the first dash in the `pyselectal` command stands for the input file (take
 
 `-x, --prefix`	Select alignments in which the 5′ end *of the read* matches either a specific prefix sequence, or a homopolymer (defined by a single base), with the exact interpretation depending on the selected mode (see below).
 
-`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Importantly,** bases designated in a CIGAR string as "matched" do not necessarily match the reference sequence: some of them may mismatch the respective bases in the reference, if such decisions optimized the alignment score.
+`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Caveat:** As this option selects alignments whose CIGAR string begins with an `M` operator, the actual bases at the 5' end of the respective reads may match *or mismatch* the reference sequence (see [the definition of the SAM format](https://samtools.github.io/hts-specs/SAMv1.pdf).
 
 `-s, --sort`	Internally name-sort the input BAM file before processing (using pysam.sort).
 
@@ -91,7 +92,7 @@ where the first dash in the `pyselectal` command stands for the input file (take
 
 ### Modes of operation
 
-The behaviour is determined by the relationship between `-n` and `-m`. In all modes, unmapped reads are ignored and are never selected.
+The behaviour is determined by the relationship between `-n` and `-m`.
 
 #### Mode 1 – Exact 5′ soft-clip (n = m > 0)
 
@@ -101,7 +102,15 @@ If `--prefix` is provided, select only alignments such that the soft-clipped seq
 Plus strand alignments: the 5′ soft-clipped sequence equals prefix.
 Minus strand alignments: the 5′ soft-clipped sequence equals reverse complement of prefix.
 
-#### Mode 2 — Mapped 5′-end (n = m = 0)
+#### Mode 2 — Soft-clip range (0 ≤ n < m)
+
+Select alignments that have a 5′ soft-clip of length x, where n ≤ x ≤ m.
+If `--prefix` is provided, it must be a single base (A, C, G, T, or N).
+
+Plus strand alignments: all 5′ soft-clipped bases equal the specified base.
+Minus strand alignments: all 5′ soft-clipped bases equal the complement of that base.
+
+#### Mode 3 — Mapped 5′-end (n = m = 0)
 
 Select alignments that have a mapped 5′ end (i.e. the 5′ CIGAR operation is M).
 This mode supports two selection strategies.
@@ -124,14 +133,6 @@ If k ≤ len(prefix) (including k = 0), selection is based only on the full pref
 If k > len(prefix), select alignments that satisfy both:
 a full prefix match (as above), and
 at least k aligned MATCH bases at the 5′ end (5′ CIGAR M length ≥ k).
-
-#### Mode 3 — Soft-clip range (n < m)
-
-Select alignments that have a 5′ soft-clip of length x, where n ≤ x ≤ m.
-If `--prefix` is provided, it must be a single base (A, C, G, T, or N).
-
-Plus strand alignments: all 5′ soft-clipped bases equal the specified base.
-Minus strand alignments: all 5′ soft-clipped bases equal the complement of that base.
 
 ### Paired-end behaviour
 
