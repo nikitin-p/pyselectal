@@ -78,7 +78,7 @@ where the first dash in the `pyselectal` command stands for the input file (take
 
 `-x, --prefix`	Select alignments in which the 5′ end *of the read* matches either a specific prefix sequence, or a homopolymer (defined by a single base), with the exact interpretation depending on the selected mode (see below).
 
-`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Caveat:** As this option selects alignments whose CIGAR string begins with an `M` operator, the actual bases at the 5' end of the respective reads may match *or mismatch* the reference sequence (see [the definition of the SAM format](https://samtools.github.io/hts-specs/SAMv1.pdf).
+`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Caveat:** As this option selects alignments whose CIGAR string begins with an `M` operator, the actual bases at the 5' end of the respective reads may match *or mismatch* the reference sequence (see [the definition of the SAM format](https://samtools.github.io/hts-specs/SAMv1.pdf)).
 
 `-s, --sort`	Internally name-sort the input BAM file before processing (using pysam.sort).
 
