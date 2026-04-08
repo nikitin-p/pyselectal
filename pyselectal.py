@@ -1,156 +1,35 @@
 #!/usr/bin/env python3
 
-VERSION = "pyselectal v1.1"
+VERSION = "pyselectal v2.0"
 
 MANUAL = """\
-pyselectal — filter alignments by 5'-end soft-clipping or matched prefix
+pyselectal — filter and analyze alignments by 5'-end type
 
 Complete manual: https://github.com/nikitin-p/pyselectal
 
-This script filters reads in a BAM file based on their 5'-end:
-    - presence/absence of 5'-soft-clipped bases
-    - length of the 5'-soft-clip (exact or within a range)
-    - optional 5'-end sequence (motif / prefix / homopolymer)
+Modes (mutually exclusive, exactly one required):
+  -s, --select SPEC[,SPEC,...]   Select alignments by 5' end type
+  -c, --count                    Output TSV histogram of 5' end types
+  -a, --all                      Split alignments into per-type BAM files
 
-It supports both single-end (SE) and paired-end (PE) reads.
-If --paired is used, input should be name-sorted OR use --sort.
+Options:
+  -i, --input BAM[,BAM,...]      Input file(s), comma-separated (required)
+  -m, --merge                    Merge multiple --select specs into one output
+  -n, --name                     Name-sort input BAM internally
+  -t, --threads N                BGZF threads (default: 1)
+  -p, --paired                   Paired-end mode
+  -h, --help                     Show this manual and exit
+  -v, --version                  Print version and exit
+
+5' end type notation (for --select):
+  [n[.m]]<S|M>[seq]    case-insensitive
+  Examples: 1Sg, 2.4S, .5M, 3Saac, M, St
 
 """
-################################################################################
-# Usage:
-#
-#     python pyselectal.py [options] in.namesort.bam out.bam
-#
-################################################################################
-# Options:
-#
-#   At least one of -n or -m must be specified.
-#   -n / --min-softclip      (int, optional)
-#       Minimum number of 5'-soft-clipped bases.
-#
-#   -m / --max-softclip      (int, optional)
-#       Maximum number of 5'-soft-clipped bases.
-#
-#   Together, -n and -m define the mode:
-#       1) Soft-clip of exact length            : n = m > 0
-#       2) Mapped 5'-end (no S)                 : n = m = 0
-#       3) Soft-clip of length within a range   : n < m
-#
-#   -x / --prefix          (optional, meaning depends on mode)
-#
-#       If n = m > 0  (exact soft-clip):
-#           -x is a prefix of length n.
-#           Forward: soft-clipped seq == prefix.
-#           Reverse: soft-clipped seq == revcomp(prefix).
-#
-#       If n = m = 0  (mapped 5'-end):
-#           -x is a prefix at the mapped 5' end.
-#           Forward: read sequence starts with prefix.
-#           Reverse: read sequence ends with revcomp(prefix).
-#
-#       If n < m      (range mode):
-#           -x is a single base A/C/G/T/N, defining a homopolymer.
-#           Forward: all 5'-soft-clipped bases == base.
-#           Reverse: all 5'-soft-clipped bases == complement(base).
-#
-#       Validation:
-#           - Exact mode: prefix length must equal n.
-#           - Range mode: prefix must be exactly one base A/C/G/T/N.
-#
-#   -k / --match          (int, optional; only meaningful when n = m = 0)
-#       If --prefix is NOT given:
-#           - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
-#           - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
-#
-#       If --prefix IS given:
-#           1) if k <= len(prefix) (including k==0):
-#                 - ignore k; select ONLY by full prefix match (orientation-aware)
-#                 - emit a warning to stderr once
-#           2) if k > len(prefix):
-#               - require BOTH:
-#                   - 5'-end operation == M with M-length >= k
-#                   - full prefix match (orientation-aware)
-#
-#   -s / --sort            (optional)
-#       Name-sort input BAM internally (samtools sort -n via pysam).
-#       Useful for --paired so you don't need to pre-sort the BAM.
-#
-#   -t / --threads         (optional, default: 1)
-#       Number of threads for pysam I/O (BGZF compression/decompression).
-#
-#   -p / --paired          (optional)
-#       Turn on paired-end mode:
-#           - Group reads by query_name.
-#           - Evaluate only read1 (R1) by 5'-end rules.
-#           - For each passing R1:
-#                 output R1
-#                 output any R2 whose (reference_id, reference_start)
-#                 matches R1's recorded mate coordinates.
-#
-################################################################################
-# Examples:
-#
-# 1) SE: exact 3-bp soft-clip with prefix ATG
-#
-#     python pyselectal.py \
-#         -n 3 -m 3 \
-#         -x ATG \
-#         in.namesort.bam \
-#         out.se.5p3S.ATG.bam
-#
-#   Keeps reads with exact 3 bp 5'-soft-clip and soft-clipped prefix ATG/CAT.
-#
-# 2) SE: mapped 5'-end, prefix ATG
-#
-#     python pyselectal.py \
-#         -n 0 -m 0 \
-#         -x ATG \
-#         in.namesort.bam \
-#         out.se.no5S.ATG.bam
-#
-#   Keeps reads with no 5'-soft-clip and mapped prefix ATG (or CAT on reverse).
-#
-# 3) SE: range 1–3 bp soft-clip, any prefix
-#
-#     python pyselectal.py \
-#         -n 1 -m 3 \
-#         in.namesort.bam \
-#         out.se.5p1to3S.bam
-#
-#   Keeps reads with 1–3 bp 5'-soft-clip.
-#
-# 4) SE: range 2–5 bp soft-clip, G homopolymer
-#
-#     python pyselectal.py \
-#         -n 2 -m 5 \
-#         -x G \
-#         in.namesort.bam \
-#         out.se.5p2to5S.Gpoly.bam
-#
-#   Keeps reads with 2–5 bp soft-clip that is all G (or C on reverse).
-#
-# 5) PE: exact 3-bp soft-clip with prefix on R1; output R2 mates
-#
-#     python pyselectal.py \
-#         -n 3 -m 3 \
-#         -x ATG \
-#         --paired \
-#         in.namesort.bam \
-#         out.pe.5p3S.ATG.bam
-#
-#   Keeps:
-#       - R1 reads passing soft-clip + prefix check
-#       - Corresponding R2 mates (matched by mate coordinates)
-#
-################################################################################
-# Notes:
-#
-#   - Unmapped reads are always rejected.
-#
-################################################################################
 
 import argparse
 import os
+import re
 import sys
 import tempfile
 import pysam
@@ -362,6 +241,105 @@ def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
     return has_5prime_softclip_range(aln, n, m, base, rc_base)
 
 
+def parse_spec(spec_str):
+    """
+    Parse a 5' end type spec into a structured dict.
+
+    Grammar: [n[.m]]<S|M>[seq]   (case-insensitive)
+
+    Returns dict with keys: type, n, m, seq, raw.
+    """
+    raw = spec_str.strip()
+    if not raw:
+        die("Empty spec.")
+    s = raw.upper()
+
+    pattern = r'^(\d+)?(\.(\d*))?([SM])([ACGT]*)$'
+    match = re.match(pattern, s)
+    if not match:
+        die(f"Invalid spec: '{raw}'")
+
+    n_str, dot_group, m_str, mode, seq = match.groups()
+    has_dot = dot_group is not None
+    seq = seq if seq else None
+
+    if has_dot:
+        n_val = int(n_str) if n_str else 0
+        m_val = int(m_str) if m_str else None
+    elif n_str is not None:
+        n_val = int(n_str)
+        m_val = n_val if mode == "S" else None  # S: exact; M: at-least
+    else:
+        # Bare S or M with no numbers
+        n_val = None
+        m_val = None
+
+    if mode == "S":
+        if n_val is None:
+            # Bare "S[seq]": any softclip
+            n_val = 1
+            m_val = None
+        if n_val == m_val and n_val > 0:
+            # Exact softclip — validate / expand seq
+            if seq is not None:
+                if len(seq) == 1:
+                    seq = seq * n_val  # expand homopolymer
+                elif len(seq) != n_val:
+                    die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
+        else:
+            # Range softclip — seq must be 0 or 1 char
+            if seq is not None and len(seq) > 1:
+                die(f"Spec '{raw}': range softclip allows at most 1 base, got '{seq}'.")
+    else:
+        # M mode
+        if n_val is None:
+            n_val = 0
+            m_val = None
+
+    # Normalized lowercase raw for file naming
+    norm = raw.lower()
+
+    return {
+        "type": mode,
+        "n": n_val,
+        "m": m_val,
+        "seq": seq,
+        "raw": norm,
+    }
+
+
+def spec_matches_aln(aln, spec):
+    """Check if an alignment matches a parsed spec."""
+    if aln.is_unmapped:
+        return False
+
+    if spec["type"] == "S":
+        n, m, seq = spec["n"], spec["m"], spec["seq"]
+        if m is not None and n == m and n > 0:
+            # Exact softclip
+            prefix = seq
+            rc_prefix = revcomp(prefix) if prefix else None
+            return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
+        else:
+            # Range softclip — seq is single base for homopolymer check
+            base = seq[0].upper() if seq else None
+            rc_base = comp_base(base) if base else None
+            return has_5prime_softclip_range(aln, n, m, base, rc_base)
+    else:
+        # M mode
+        prefix = spec["seq"]
+        rc_prefix = revcomp(prefix) if prefix else None
+        k = spec["n"]
+        if not has_5prime_mapped_exact(aln, prefix, rc_prefix, k):
+            return False
+        # Enforce max match length if specified
+        if spec["m"] is not None:
+            op, length = get_5prime_cigar(aln)
+            if op == MATCH and length > spec["m"]:
+                return False
+        return True
+
+
 def process_group_pe(records, n, m, prefix, k, out_bam, warn_k_ignored=False):
     """
     Paired-end mode: records = list of AlignedSegment with the same query_name.
@@ -445,44 +423,44 @@ def parse_args(argv):
 
     parser = HelpfulArgumentParser(
         add_help=False,
-        description="Filter BAM alignments by 5'-end soft-clipping / mapped-prefix pattern."
+        description="Filter and analyze BAM alignments by 5'-end type."
     )
 
-    # Manual/help
-    parser.add_argument("-h", "--help", action="store_true", help="Show the manual and exit.")
+    # Help/version
+    parser.add_argument("-h", "--help", action="store_true",
+                        help="Show the manual and exit.")
     parser.add_argument("-v", "--version", action="store_true",
                         help="Print version information and exit.")
-    parser.add_argument("in_bam", help="Input BAM path or '-' for stdin.")
-    parser.add_argument("out_bam", help="Output BAM path or '-' for stdout.")
 
-    parser.add_argument("-n", "--min-softclip", type=int, default=None,
-                        help="Minimum 5' soft-clip length (n). If missing, defaults to 0.")
-    parser.add_argument("-m", "--max-softclip", type=int, default=None,
-                        help="Maximum 5' soft-clip length (m). If missing, no upper bound (range mode).")
+    # Input
+    parser.add_argument("-i", "--input", type=str, default=None,
+                        help="Input BAM file(s), comma-separated.")
 
-    parser.add_argument("-x", "--prefix", type=str, default=None,
-                        help="Optional prefix/base (meaning depends on mode; see -h).")
+    # Modes (mutually exclusive)
+    parser.add_argument("-s", "--select", type=str, default=None,
+                        help="Select alignments by 5' end type spec(s), comma-separated.")
+    parser.add_argument("-c", "--count", action="store_true",
+                        help="Output TSV histogram of 5' end types.")
+    parser.add_argument("-a", "--all", action="store_true",
+                        help="Split alignments into per-type BAM files.")
 
-    parser.add_argument("-k", "--match", type=int, default=0,
-                        help=("Mapped mode only (n=m=0): "
-                              "If --prefix not given: require >=k 5' MATCH bases (CIGAR). "
-                              "If --prefix given: if k<=len(prefix), k is ignored and full prefix is required; "
-                              "if k>len(prefix), require both >=k 5' MATCH bases AND full prefix."))
-
-    parser.add_argument("-s", "--sort", action="store_true",
-                        help="Name-sort input BAM internally (samtools sort -n via pysam).")
-
+    # Options
+    parser.add_argument("-m", "--merge", action="store_true",
+                        help="Merge multiple --select specs into one output file.")
+    parser.add_argument("-n", "--name", action="store_true",
+                        help="Name-sort input BAM internally (pysam.sort -n).")
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Number of BGZF threads for pysam I/O.")
-
     parser.add_argument("-p", "--paired", action="store_true",
                         help="Paired-end mode: select read1 and emit matching read2 mates.")
+    parser.add_argument("-o", "--output", type=str, default=None,
+                        help="Output file path (overrides automatic naming).")
 
     if pre_args.help or len(argv) == 0:
         sys.stdout.write(MANUAL)
         parser.print_help(sys.stdout)
         raise SystemExit(0)
-    
+
     args = parser.parse_args(argv)
 
     if args.help:
@@ -490,61 +468,25 @@ def parse_args(argv):
         parser.print_help(sys.stdout)
         raise SystemExit(0)
 
-    # basic checks on n, m
-    # basic checks on n, m
-    n_provided = args.min_softclip is not None
-    m_provided = args.max_softclip is not None
+    # Require -i/--input
+    if not args.input:
+        parser.error("-i/--input is required.")
 
-    n = args.min_softclip if n_provided else 0
-    m = args.max_softclip if m_provided else None
+    # Parse comma-separated input files
+    args.input_files = [f.strip() for f in args.input.split(",") if f.strip()]
+    if not args.input_files:
+        parser.error("-i/--input must specify at least one file.")
 
-    prefix = args.prefix
-    k = args.match
+    # Exactly one mode required
+    modes = sum([args.select is not None, args.count, getattr(args, 'all')])
+    if modes == 0:
+        parser.error("Exactly one mode is required: -s/--select, -c/--count, or -a/--all.")
+    if modes > 1:
+        parser.error("Modes -s/--select, -c/--count, and -a/--all are mutually exclusive.")
 
-    # Safety: require at least one of -n/-m be explicitly provided
-    # (otherwise we'd select all 5' soft-clipped reads by default, which is usually accidental)
-    if not n_provided and not m_provided:
-        parser.error("At least one of -n/--min-softclip or -m/--max-softclip must be provided.")
-
-    if n < 0:
-        parser.error("n must be a non-negative integer.")
-    if m is not None and m < 0:
-        parser.error("m must be a non-negative integer.")
-
-    # If m is provided, enforce n <= m
-    if m is not None and n > m:
-        parser.error("Require n <= m (min-softclip <= max-softclip).")
-
-    # Write back normalized values so the rest of the script uses them
-    args.min_softclip = n
-    args.max_softclip = m
-
-    # -k is only meaningful when mapped mode is explicitly selected: n=0 and m=0
-    if k < 0:
-        parser.error("-k must be >= 0.")
-    if k != 0 and not (n == 0 and m == 0):
-        parser.error("-k is only valid when n = 0 and m = 0 (mapped 5' mode).")
-
-    # mode-specific validation of -x/--prefix
-    # mapped mode: n=0, m=0
-    if n == 0 and m == 0:
-        # mapped mode: prefix can be any length if provided
-        pass
-
-    # exact soft-clip mode: only when m is provided and equals n > 0
-    elif m is not None and n == m and n > 0:
-        if prefix is not None and len(prefix) != n:
-            parser.error(
-                f"In exact soft-clip mode (n = m = {n}), --prefix length ({len(prefix)}) must equal n."
-            )
-
-    # range mode: (includes m is None, or n < m)
-    else:
-        if prefix is not None:
-            if len(prefix) != 1 or prefix.upper() not in "ACGTN":
-                parser.error(
-                    "In range mode, --prefix must be a single base A/C/G/T/N if provided."
-                )
+    # --merge only with --select
+    if args.merge and args.select is None:
+        parser.error("-m/--merge can only be used with -s/--select.")
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
@@ -628,64 +570,113 @@ def open_alignment_files(in_path, out_path, threads):
         die(f"Failed to open BAM(s): {e}")
     return in_bam, out_bam
                                                         
+def process_select_se(in_bam, out_bam, spec):
+    """Single-end --select: write alignments matching spec."""
+    for aln in in_bam.fetch(until_eof=True):
+        if spec_matches_aln(aln, spec):
+            out_bam.write(aln)
+
+
+def process_select_pe(in_bam, out_bam, spec):
+    """Paired-end --select: group by query_name, select R1, emit R1+R2."""
+    current_qname = None
+    group = []
+
+    for aln in in_bam.fetch(until_eof=True):
+        qn = aln.query_name
+        if current_qname is None:
+            current_qname = qn
+            group = [aln]
+        elif qn == current_qname:
+            group.append(aln)
+        else:
+            _flush_pe_group(group, spec, out_bam)
+            current_qname = qn
+            group = [aln]
+
+    if group:
+        _flush_pe_group(group, spec, out_bam)
+
+
+def _flush_pe_group(records, spec, out_bam):
+    """Select R1s matching spec, then emit their R2 mates."""
+    if not records:
+        return
+
+    r1_selected = [r for r in records
+                   if r.is_read1 and spec_matches_aln(r, spec)]
+    if not r1_selected:
+        return
+
+    mate_coords = set()
+    for r in r1_selected:
+        if (r.next_reference_id is not None and r.next_reference_start is not None
+                and r.next_reference_id >= 0 and r.next_reference_start >= 0):
+            mate_coords.add((r.next_reference_id, r.next_reference_start))
+
+    for r in r1_selected:
+        out_bam.write(r)
+    for r in records:
+        if r.is_read2 and (r.reference_id, r.reference_start) in mate_coords:
+            out_bam.write(r)
+
+
+def _select_output_path(in_path, spec, args):
+    """Determine output path for a --select run."""
+    if args.output:
+        return args.output
+    specs = [s.strip() for s in args.select.split(",") if s.strip()]
+    if len(args.input_files) == 1 and len(specs) == 1:
+        return "-"  # stdout
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_{spec['raw']}.bam"
+
+
+def run_select(args):
+    """Execute --select mode."""
+    specs_raw = [s.strip() for s in args.select.split(",") if s.strip()]
+    specs = [parse_spec(s) for s in specs_raw]
+
+    for in_path in args.input_files:
+        actual_in = in_path
+        tmp_sorted = None
+
+        if args.name and in_path != "-":
+            tmp_sorted = name_sort_bam(in_path, args.threads)
+            actual_in = tmp_sorted
+
+        try:
+            for spec in specs:
+                out_path = _select_output_path(in_path, spec, args)
+                in_bam, out_bam = open_alignment_files(actual_in, out_path, args.threads)
+                try:
+                    if args.paired:
+                        process_select_pe(in_bam, out_bam, spec)
+                    else:
+                        process_select_se(in_bam, out_bam, spec)
+                finally:
+                    out_bam.close()
+                    in_bam.close()
+        finally:
+            if tmp_sorted:
+                try:
+                    os.remove(tmp_sorted)
+                except OSError:
+                    pass
+
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
 
     args = parse_args(argv)
 
-    n = args.min_softclip
-    m = args.max_softclip
-    prefix = args.prefix
-    k = args.match
-    threads = args.threads
-
-    # warn once if k will be ignored in mapped mode with prefix
-    warn_k_ignored = False
-    mapped_mode = (n == 0 and m is not None and m == 0)
-    if mapped_mode and prefix and (k <= len(prefix)):
-        warn_k_ignored = True
-    
-    temp_files = []
-    in_path = args.in_bam
-
-    # If input is stdin and we need to sort, spool stdin first.
-    if args.sort and in_path == "-":
-        # in_path only, remove spooled
-        spooled = spool_stdin_to_temp_bam()
-        temp_files.append(spooled)
-        in_path = spooled
-    
-    # If paired-end mode, name sorting is required for correct grouping.
-    # We only enforce via --sort; otherwise assume the user already provided name-sorted input.
-    temp_sorted = None
-    if args.sort:
-        temp_sorted = name_sort_bam(in_path, threads)
-        temp_files.append(temp_sorted)
-        in_path = temp_sorted
-
-    in_bam, out_bam = open_alignment_files(in_path, args.out_bam, threads)
-
-    try:
-        if args.paired:
-            process_stream_pe(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=warn_k_ignored)
-        else:
-            process_stream_se(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=warn_k_ignored)
-    finally:
-        try:
-            in_bam.close()
-        except Exception:
-            pass
-        try:
-            out_bam.close()
-        except Exception:
-            pass
-        # temp_files is needed for removing temporary files
-        for p in temp_files:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+    if args.select is not None:
+        run_select(args)
+    elif args.count:
+        die("--count mode is not yet implemented.")
+    elif getattr(args, 'all'):
+        die("--all mode is not yet implemented.")
 
 if __name__ == "__main__":
     main()
