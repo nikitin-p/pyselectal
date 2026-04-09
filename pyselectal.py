@@ -84,6 +84,33 @@ def get_5prime_cigar(aln):
     return (cig[-1] if aln.is_reverse else cig[0])
 
 
+def classify_5prime_type(aln):
+    """
+    Classify an alignment's 5' end type as a string.
+
+    Returns e.g. '1Sg', '2Sgg', '3Saac', 'M', or None for unmapped.
+    For soft-clipped reads: {length}S{sequence} (forward-strand sequence,
+    reverse reads report the reverse-complement of the 3'-end soft-clip).
+    For mapped 5' ends: 'M'.
+    """
+    if aln.is_unmapped:
+        return None
+
+    op, length = get_5prime_cigar(aln)
+    if op == SOFT:
+        seq = aln.query_sequence
+        if not seq:
+            return f"{length}S"
+        if aln.is_reverse:
+            sc_seq = revcomp(seq[-length:])
+        else:
+            sc_seq = seq[:length]
+        return f"{length}S{sc_seq.lower()}"
+    elif op == MATCH:
+        return "M"
+    return None
+
+
 def has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=False):
     """
     Exact match mode (n = m = 0):
@@ -632,6 +659,74 @@ def _select_output_path(in_path, spec, args):
     return f"{stem}_{spec['raw']}.bam"
 
 
+def _merge_output_path(in_path, args):
+    """Determine output path for a --select --merge run."""
+    if args.output:
+        return args.output
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_merged.bam"
+
+
+def process_select_merge_se(in_bam, out_bam, specs):
+    """Single-end --select --merge: write alignments matching any spec, once each."""
+    for aln in in_bam.fetch(until_eof=True):
+        for spec in specs:
+            if spec_matches_aln(aln, spec):
+                out_bam.write(aln)
+                break
+
+
+def process_select_merge_pe(in_bam, out_bam, specs):
+    """Paired-end --select --merge: group by query_name, select R1 matching any spec."""
+    current_qname = None
+    group = []
+
+    for aln in in_bam.fetch(until_eof=True):
+        qn = aln.query_name
+        if current_qname is None:
+            current_qname = qn
+            group = [aln]
+        elif qn == current_qname:
+            group.append(aln)
+        else:
+            _flush_pe_group_merge(group, specs, out_bam)
+            current_qname = qn
+            group = [aln]
+
+    if group:
+        _flush_pe_group_merge(group, specs, out_bam)
+
+
+def _flush_pe_group_merge(records, specs, out_bam):
+    """Select R1s matching any spec (deduplicated), then emit their R2 mates."""
+    if not records:
+        return
+
+    r1_selected = []
+    for r in records:
+        if not r.is_read1:
+            continue
+        for spec in specs:
+            if spec_matches_aln(r, spec):
+                r1_selected.append(r)
+                break
+
+    if not r1_selected:
+        return
+
+    mate_coords = set()
+    for r in r1_selected:
+        if (r.next_reference_id is not None and r.next_reference_start is not None
+                and r.next_reference_id >= 0 and r.next_reference_start >= 0):
+            mate_coords.add((r.next_reference_id, r.next_reference_start))
+
+    for r in r1_selected:
+        out_bam.write(r)
+    for r in records:
+        if r.is_read2 and (r.reference_id, r.reference_start) in mate_coords:
+            out_bam.write(r)
+
+
 def run_select(args):
     """Execute --select mode."""
     specs_raw = [s.strip() for s in args.select.split(",") if s.strip()]
@@ -646,17 +741,113 @@ def run_select(args):
             actual_in = tmp_sorted
 
         try:
-            for spec in specs:
-                out_path = _select_output_path(in_path, spec, args)
+            if args.merge:
+                out_path = _merge_output_path(in_path, args)
                 in_bam, out_bam = open_alignment_files(actual_in, out_path, args.threads)
                 try:
                     if args.paired:
-                        process_select_pe(in_bam, out_bam, spec)
+                        process_select_merge_pe(in_bam, out_bam, specs)
                     else:
-                        process_select_se(in_bam, out_bam, spec)
+                        process_select_merge_se(in_bam, out_bam, specs)
                 finally:
                     out_bam.close()
                     in_bam.close()
+            else:
+                for spec in specs:
+                    out_path = _select_output_path(in_path, spec, args)
+                    in_bam, out_bam = open_alignment_files(actual_in, out_path, args.threads)
+                    try:
+                        if args.paired:
+                            process_select_pe(in_bam, out_bam, spec)
+                        else:
+                            process_select_se(in_bam, out_bam, spec)
+                    finally:
+                        out_bam.close()
+                        in_bam.close()
+        finally:
+            if tmp_sorted:
+                try:
+                    os.remove(tmp_sorted)
+                except OSError:
+                    pass
+
+
+def _count_output_path(in_path, args):
+    """Determine output path for a --count run."""
+    if args.output:
+        return args.output
+    if len(args.input_files) == 1:
+        return "-"  # stdout
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_5prime_counts.tsv"
+
+
+def process_count_se(in_bam):
+    """Count 5' end types for all alignments. Returns dict {type: count}."""
+    counts = {}
+    for aln in in_bam.fetch(until_eof=True):
+        t = classify_5prime_type(aln)
+        if t is not None:
+            counts[t] = counts.get(t, 0) + 1
+    return counts
+
+
+def process_count_pe(in_bam):
+    """Count 5' end types for R1 alignments only. Returns dict {type: count}."""
+    counts = {}
+    for aln in in_bam.fetch(until_eof=True):
+        if not aln.is_read1:
+            continue
+        t = classify_5prime_type(aln)
+        if t is not None:
+            counts[t] = counts.get(t, 0) + 1
+    return counts
+
+
+def write_count_tsv(counts, out_path):
+    """Write type\\tcount TSV sorted by descending count."""
+    sorted_types = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+    if out_path == "-":
+        f = sys.stdout
+    else:
+        f = open(out_path, "w")
+    try:
+        f.write("type\tcount\n")
+        for t, c in sorted_types:
+            f.write(f"{t}\t{c}\n")
+    finally:
+        if out_path != "-":
+            f.close()
+
+
+def run_count(args):
+    """Execute --count mode."""
+    for in_path in args.input_files:
+        actual_in = in_path
+        tmp_sorted = None
+
+        if args.name and in_path != "-":
+            tmp_sorted = name_sort_bam(in_path, args.threads)
+            actual_in = tmp_sorted
+
+        try:
+            if actual_in == "-":
+                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb")
+            elif args.threads > 1:
+                in_bam = pysam.AlignmentFile(actual_in, "rb", threads=args.threads)
+            else:
+                in_bam = pysam.AlignmentFile(actual_in, "rb")
+
+            try:
+                if args.paired:
+                    counts = process_count_pe(in_bam)
+                else:
+                    counts = process_count_se(in_bam)
+            finally:
+                in_bam.close()
+
+            out_path = _count_output_path(in_path, args)
+            write_count_tsv(counts, out_path)
         finally:
             if tmp_sorted:
                 try:
@@ -674,7 +865,7 @@ def main(argv=None):
     if args.select is not None:
         run_select(args)
     elif args.count:
-        die("--count mode is not yet implemented.")
+        run_count(args)
     elif getattr(args, 'all'):
         die("--all mode is not yet implemented.")
 

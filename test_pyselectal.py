@@ -5,7 +5,7 @@ import tempfile
 import pytest
 import pysam
 from pyselectal import (
-    parse_args, parse_spec, spec_matches_aln, main, VERSION,
+    parse_args, parse_spec, spec_matches_aln, classify_5prime_type, main, VERSION,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -473,3 +473,203 @@ class TestSelectEndToEnd:
         out = str(tmp_path / "out.bam")
         main(["-i", PE_BAM, "-s", "S", "-p", "-n", "-o", out])
         assert _count_reads_in_bam(out) > 0
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Issue 4 — --merge
+# ---------------------------------------------------------------------------
+
+class TestMergeEndToEnd:
+    """End-to-end tests for --select --merge mode."""
+
+    def test_merge_se_combines_specs(self, tmp_path):
+        """Merge 1Sg + 2Sg should yield union (no duplicates)."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-o", out])
+        # 1Sg: READ1(0), READ2(16), READ7(16) = 3
+        # 2Sg: READ1(2048), READ4(16), READ6(256) = 3
+        # No overlap -> 6
+        assert _count_reads_in_bam(out) == 6
+
+    def test_merge_se_deduplicates(self, tmp_path):
+        """Merge with overlapping specs: each alignment written once."""
+        out = str(tmp_path / "out.bam")
+        # S matches all 10; 1Sg matches 3 (subset) -> still 10
+        main(["-i", SE_BAM, "-s", "S,1Sg", "-m", "-o", out])
+        assert _count_reads_in_bam(out) == 10
+
+    def test_merge_se_output_naming(self, tmp_path):
+        """Merge produces {stem}_merged.bam when no -o given."""
+        os.chdir(str(tmp_path))
+        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m"])
+        expected = str(tmp_path / "test_softclip_se_merged.bam")
+        assert os.path.exists(expected)
+        assert _count_reads_in_bam(expected) == 6
+
+    def test_merge_se_respects_output_flag(self, tmp_path):
+        """-o overrides automatic naming."""
+        out = str(tmp_path / "custom.bam")
+        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-o", out])
+        assert os.path.exists(out)
+        assert _count_reads_in_bam(out) == 6
+
+    def test_merge_pe(self, tmp_path):
+        """PE merge: R1 matching any spec + their R2 mates."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", PE_BAM, "-s", "1Sg,2Sg", "-p", "-m", "-o", out])
+        count = _count_reads_in_bam(out)
+        assert count > 0
+
+    def test_merge_pe_with_name_sort(self, tmp_path):
+        """PE merge with --name sort."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", PE_BAM, "-s", "S", "-p", "-n", "-m", "-o", out])
+        assert _count_reads_in_bam(out) > 0
+
+    def test_merge_single_spec(self, tmp_path):
+        """Merge with one spec should work identically to non-merge."""
+        out_merge = str(tmp_path / "merge.bam")
+        out_normal = str(tmp_path / "normal.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "-m", "-o", out_merge])
+        main(["-i", SE_BAM, "-s", "1Sg", "-o", out_normal])
+        assert _count_reads_in_bam(out_merge) == _count_reads_in_bam(out_normal)
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Issue 1 — --count TSV histogram
+# ---------------------------------------------------------------------------
+
+def _read_tsv(path):
+    """Read a TSV file and return (header, rows) where rows is list of (type, count)."""
+    with open(path) as f:
+        lines = f.read().strip().split("\n")
+    header = lines[0]
+    rows = []
+    for line in lines[1:]:
+        parts = line.split("\t")
+        rows.append((parts[0], int(parts[1])))
+    return header, rows
+
+
+class TestClassify5primeType:
+    """Unit tests for classify_5prime_type() on SE BAM."""
+
+    def test_fwd_1bp_softclip_g(self):
+        """READ1(0): 1S75M fwd, 5' base G -> '1Sg'."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ1" and a.flag == 0][0]
+        assert classify_5prime_type(aln) == "1Sg"
+
+    def test_rev_1bp_softclip_c(self):
+        """READ2(16): 75M1S rev, 5' base C -> '1Sg' (revcomp of C = G)."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ2" and a.flag == 16][0]
+        assert classify_5prime_type(aln) == "1Sg"
+
+    def test_fwd_3bp_softclip(self):
+        """READ3(0): 3S73M fwd, 5' seq GGG -> '3Sggg'."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ3" and a.flag == 0][0]
+        assert classify_5prime_type(aln) == "3Sggg"
+
+    def test_rev_3bp_softclip(self):
+        """READ2(272): 73M3S rev, 5' seq CCC -> '3Sggg' (revcomp)."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ2" and a.flag == 272][0]
+        assert classify_5prime_type(aln) == "3Sggg"
+
+    def test_fwd_2bp_softclip(self):
+        """READ1(2048): 2S74M fwd -> '2Sgg'."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ1" and a.flag == 2048][0]
+        assert classify_5prime_type(aln) == "2Sgg"
+
+    def test_rev_2bp_softclip(self):
+        """READ4(16): 74M2S rev, 5' seq CC -> '2Sgg' (revcomp)."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ4" and a.flag == 16][0]
+        assert classify_5prime_type(aln) == "2Sgg"
+
+    def test_fwd_4bp_softclip(self):
+        """READ5(0): 4S72M fwd -> '4Sgggg'."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ5" and a.flag == 0][0]
+        assert classify_5prime_type(aln) == "4Sgggg"
+
+    def test_rev_4bp_softclip(self):
+        """READ5(2064): 72M4S rev -> '4Scccc' revcomp = '4Sgggg'."""
+        alns = _read_all(SE_BAM)
+        aln = [a for a in alns if a.query_name == "READ5" and a.flag == 2064][0]
+        assert classify_5prime_type(aln) == "4Sgggg"
+
+
+class TestCountEndToEnd:
+    """End-to-end tests for --count mode."""
+
+    def test_count_se_to_stdout(self, tmp_path, capsys):
+        """Single input -> stdout TSV."""
+        main(["-i", SE_BAM, "-c"])
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split("\n")
+        assert lines[0] == "type\tcount"
+        # 10 alignments, all soft-clipped -> should have entries
+        assert len(lines) > 1
+
+    def test_count_se_to_file(self, tmp_path):
+        """With -o, write TSV to file."""
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out])
+        header, rows = _read_tsv(out)
+        assert header == "type\tcount"
+        total = sum(c for _, c in rows)
+        assert total == 10  # all 10 SE alignments are soft-clipped
+
+    def test_count_se_types_correct(self, tmp_path):
+        """Verify exact type counts from SE BAM."""
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out])
+        _, rows = _read_tsv(out)
+        counts = dict(rows)
+        # From test data: 1Sg x3 (READ1:0, READ2:16, READ7:16),
+        # 2Sgg x3 (READ1:2048, READ4:16, READ6:256),
+        # 3Sggg x2 (READ3:0, READ2:272),
+        # 4Sgggg x2 (READ5:0, READ5:2064)
+        assert counts["1Sg"] == 3
+        assert counts["2Sgg"] == 3
+        assert counts["3Sggg"] == 2
+        assert counts["4Sgggg"] == 2
+
+    def test_count_se_sorted_by_descending_count(self, tmp_path):
+        """Rows should be sorted by descending count."""
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out])
+        _, rows = _read_tsv(out)
+        counts_list = [c for _, c in rows]
+        assert counts_list == sorted(counts_list, reverse=True)
+
+    def test_count_output_naming_multi_input(self, tmp_path):
+        """Multiple inputs -> {stem}_5prime_counts.tsv files."""
+        os.chdir(str(tmp_path))
+        main(["-i", f"{SE_BAM},{PE_BAM}", "-c"])
+        assert os.path.exists(str(tmp_path / "test_softclip_se_5prime_counts.tsv"))
+        assert os.path.exists(str(tmp_path / "test_softclip_pe_5prime_counts.tsv"))
+
+    def test_count_pe_r1_only(self, tmp_path):
+        """PE mode counts only R1 alignments."""
+        out_se = str(tmp_path / "se.tsv")
+        out_pe = str(tmp_path / "pe.tsv")
+        main(["-i", PE_BAM, "-c", "-o", out_se])
+        main(["-i", PE_BAM, "-c", "-p", "-o", out_pe])
+        _, rows_se = _read_tsv(out_se)
+        _, rows_pe = _read_tsv(out_pe)
+        total_se = sum(c for _, c in rows_se)
+        total_pe = sum(c for _, c in rows_pe)
+        # PE BAM has 20 reads (10 R1 + 10 R2); SE counts all, PE counts R1 only
+        assert total_se == 20
+        assert total_pe < total_se
+
+    def test_count_respects_output_flag(self, tmp_path):
+        """-o overrides automatic naming."""
+        out = str(tmp_path / "custom.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out])
+        assert os.path.exists(out)
