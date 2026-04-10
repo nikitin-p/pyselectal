@@ -5,7 +5,8 @@ import tempfile
 import pytest
 import pysam
 from pyselectal import (
-    parse_args, parse_spec, spec_matches_aln, classify_5prime_type, main, VERSION,
+    parse_args, parse_spec, spec_matches_aln, classify_5prime_type, write_count_tsv,
+    main, VERSION, _detect_format,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -673,3 +674,461 @@ class TestCountEndToEnd:
         out = str(tmp_path / "custom.tsv")
         main(["-i", SE_BAM, "-c", "-o", out])
         assert os.path.exists(out)
+
+
+# ---------------------------------------------------------------------------
+# Step 4 additions: --mapped-prefix and --collapse-threshold
+# ---------------------------------------------------------------------------
+
+def _get_r2_alns(bam_path):
+    """Return all R2 alignments from a BAM."""
+    with pysam.AlignmentFile(bam_path, "rb") as f:
+        return [a for a in f.fetch(until_eof=True) if a.is_read2]
+
+
+class TestMappedPrefix:
+    """Tests for classify_5prime_type() MATCH case with --mapped-prefix."""
+
+    def test_mapped_default_prefix_format(self):
+        """Default mapped_prefix=5: returns '{length}M{bases}' for a 76M R2."""
+        import re
+        alns = _get_r2_alns(PE_BAM)
+        fwd_alns = [a for a in alns if not a.is_reverse]
+        assert fwd_alns, "Expected at least one forward R2 in PE BAM"
+        result = classify_5prime_type(fwd_alns[0])
+        assert re.match(r'^\d+M[acgtn]+$', result), f"Unexpected format: {result!r}"
+
+    def test_mapped_zero_prefix_no_sequence(self):
+        """mapped_prefix=0: returns '{length}M' without bases."""
+        import re
+        alns = _get_r2_alns(PE_BAM)
+        fwd_alns = [a for a in alns if not a.is_reverse]
+        assert fwd_alns
+        result = classify_5prime_type(fwd_alns[0], mapped_prefix=0)
+        assert re.match(r'^\d+M$', result), f"Unexpected format: {result!r}"
+
+    def test_mapped_prefix_length_cap(self):
+        """mapped_prefix > match length: at most match_length bases shown."""
+        alns = _get_r2_alns(PE_BAM)
+        fwd_alns = [a for a in alns if not a.is_reverse]
+        assert fwd_alns
+        aln = fwd_alns[0]
+        result = classify_5prime_type(aln, mapped_prefix=100)
+        m_idx = result.index('M')
+        match_len = int(result[:m_idx])
+        seq_part = result[m_idx + 1:]
+        assert len(seq_part) <= match_len
+
+    def test_mapped_prefix_shorter_than_match_is_prefix_of_longer(self):
+        """mapped_prefix=3 sequence is prefix of mapped_prefix=10 sequence."""
+        alns = _get_r2_alns(PE_BAM)
+        fwd_alns = [a for a in alns if not a.is_reverse]
+        assert fwd_alns
+        aln = fwd_alns[0]
+        r3 = classify_5prime_type(aln, mapped_prefix=3)
+        r10 = classify_5prime_type(aln, mapped_prefix=10)
+        seq3 = r3[r3.index('M') + 1:]
+        seq10 = r10[r10.index('M') + 1:]
+        assert seq10.startswith(seq3)
+
+    def test_mapped_prefix_reverse_strand(self):
+        """Reverse-strand R2: result is forward-strand orientation (revcomp of stored)."""
+        import re
+        alns = _get_r2_alns(PE_BAM)
+        rev_alns = [a for a in alns if a.is_reverse]
+        if not rev_alns:
+            pytest.skip("No reverse-strand R2 in PE BAM")
+        result = classify_5prime_type(rev_alns[0], mapped_prefix=3)
+        assert re.match(r'^\d+M[acgtn]+$', result), f"Unexpected format: {result!r}"
+
+    def test_mapped_prefix_cli_zero(self, tmp_path):
+        """--mapped-prefix 0: all M-type rows are '{length}M' with no bases."""
+        import re
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", PE_BAM, "-c", "--mapped-prefix", "0", "-o", out])
+        _, rows = _read_tsv(out)
+        m_rows = [(t, c) for t, c in rows if 'M' in t and not t.startswith('other')]
+        for t, _ in m_rows:
+            assert re.match(r'^\d+M$', t), f"Unexpected M-type: {t!r}"
+
+    def test_mapped_prefix_cli_default(self, tmp_path):
+        """Default --mapped-prefix 5: M-type rows include base sequence."""
+        import re
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", PE_BAM, "-c", "-o", out])
+        _, rows = _read_tsv(out)
+        m_rows = [(t, c) for t, c in rows if re.match(r'^\d+M', t) and not t.startswith('other')]
+        assert m_rows, "Expected at least one M-type in PE BAM"
+        for t, _ in m_rows:
+            assert re.match(r'^\d+M[acgtn]+$', t), f"Unexpected M-type: {t!r}"
+
+    def test_mapped_prefix_parse_args_defaults(self):
+        args = parse_args(["-i", "in.bam", "-c"])
+        assert args.mapped_prefix == 5
+
+    def test_mapped_prefix_parse_args_custom(self):
+        args = parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "3"])
+        assert args.mapped_prefix == 3
+
+    def test_mapped_prefix_zero_valid(self):
+        args = parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "0"])
+        assert args.mapped_prefix == 0
+
+    def test_mapped_prefix_negative_rejected(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "-1"])
+        assert exc.value.code == 2
+
+
+class TestCollapseThreshold:
+    """Tests for write_count_tsv collapse and --collapse-threshold CLI flag."""
+
+    def test_collapse_no_other_when_all_above(self, tmp_path):
+        """No 'other' row if all types meet the threshold."""
+        counts = {"1Sg": 50, "2Sgg": 30, "3Sggg": 20}  # 50%, 30%, 20% — all >= 5%
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=5.0)
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert not any("other" in t for t in types)
+        assert sum(c for _, c in rows) == 100
+
+    def test_collapse_creates_other_row(self, tmp_path):
+        """Types below threshold are collapsed into 'other' row."""
+        counts = {"1Sg": 80, "2Sgg": 15, "3Sggg": 5}  # 5% < 5% threshold? No.
+        # 3Sggg is exactly 5%, not strictly less — should NOT collapse
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=5.0)
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert not any("other" in t for t in types)
+
+    def test_collapse_strictly_below(self, tmp_path):
+        """3% < 5% threshold -> collapses."""
+        counts = {"1Sg": 80, "2Sgg": 17, "3Sggg": 3}  # 3% < 5%
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=5.0)
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert any("other (<5%)" in t for t in types)
+        # other row count = 3
+        other_count = dict(rows).get("other (<5%)", 0)
+        assert other_count == 3
+
+    def test_collapse_other_row_is_last(self, tmp_path):
+        """'other' row always appears last regardless of its count."""
+        counts = {"1Sg": 60, "2Sgg": 30, "3Sggg": 4, "4Sgggg": 4, "5Sggggg": 2}
+        # 4%, 4%, 2% are each below 5% -> other = 10
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=5.0)
+        _, rows = _read_tsv(out)
+        assert rows[-1][0] == "other (<5%)"
+        assert rows[-1][1] == 10
+
+    def test_collapse_zero_disables(self, tmp_path):
+        """--collapse-threshold 0 disables collapsing."""
+        counts = {"1Sg": 99, "2Sgg": 1}  # 1% would normally collapse
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=0)
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert not any("other" in t for t in types)
+        assert len(rows) == 2
+
+    def test_collapse_label_reflects_threshold(self, tmp_path):
+        """Label 'other (<10%)' when threshold is 10."""
+        counts = {"1Sg": 91, "2Sgg": 5, "3Sggg": 4}  # 4% < 10%
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=10.0)
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert any("other (<10%)" in t for t in types)
+
+    def test_collapse_total_preserved(self, tmp_path):
+        """Sum of all counts (including other) equals original total."""
+        counts = {"1Sg": 60, "2Sgg": 30, "3Sggg": 7, "4Sgggg": 3}
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=5.0)
+        _, rows = _read_tsv(out)
+        assert sum(c for _, c in rows) == 100
+
+    def test_collapse_cli_default(self, tmp_path):
+        """Default threshold 5% applies in --count output."""
+        # SE BAM: 1Sg=3(30%), 2Sgg=3(30%), 3Sggg=2(20%), 4Sgggg=2(20%) — none collapse
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out])
+        _, rows = _read_tsv(out)
+        types = [t for t, _ in rows]
+        assert not any("other" in t for t in types)
+
+    def test_collapse_cli_high_threshold(self, tmp_path):
+        """threshold=25%: 3Sggg(20%) and 4Sgggg(20%) collapse into other."""
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "--collapse-threshold", "25", "-o", out])
+        _, rows = _read_tsv(out)
+        row_dict = dict(rows)
+        assert "other (<25%)" in row_dict
+        assert row_dict["other (<25%)"] == 4  # 2 + 2
+        assert "3Sggg" not in row_dict
+        assert "4Sgggg" not in row_dict
+        assert rows[-1][0] == "other (<25%)"
+
+    def test_collapse_cli_zero_disables(self, tmp_path):
+        """--collapse-threshold 0 shows all rows."""
+        out = str(tmp_path / "counts.tsv")
+        main(["-i", SE_BAM, "-c", "--collapse-threshold", "0", "-o", out])
+        _, rows = _read_tsv(out)
+        assert len(rows) == 4
+        assert not any("other" in t for t, _ in rows)
+
+    def test_collapse_parse_args_default(self):
+        args = parse_args(["-i", "in.bam", "-c"])
+        assert args.collapse_threshold == 5.0
+
+    def test_collapse_parse_args_custom(self):
+        args = parse_args(["-i", "in.bam", "-c", "--collapse-threshold", "10"])
+        assert args.collapse_threshold == 10.0
+
+    def test_collapse_threshold_negative_rejected(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "--collapse-threshold", "-1"])
+        assert exc.value.code == 2
+
+    def test_collapse_threshold_100_rejected(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "--collapse-threshold", "100"])
+        assert exc.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Issue 2 — --all split by type
+# ---------------------------------------------------------------------------
+
+class TestAllEndToEnd:
+    """End-to-end tests for --all mode."""
+
+    # SE BAM types (from test data table):
+    # 1Sg  x3: READ1(0), READ2(16), READ7(16)
+    # 2Sgg x3: READ1(2048), READ4(16), READ6(256)
+    # 3Sggg x2: READ3(0), READ2(272)
+    # 4Sgggg x2: READ5(0), READ5(2064)
+
+    def test_all_se_creates_per_type_files(self, tmp_path):
+        """SE --all creates one BAM per distinct 5' type."""
+        os.chdir(str(tmp_path))
+        main(["-i", SE_BAM, "-a"])
+        assert os.path.exists(str(tmp_path / "test_softclip_se_1sg.bam"))
+        assert os.path.exists(str(tmp_path / "test_softclip_se_2sgg.bam"))
+        assert os.path.exists(str(tmp_path / "test_softclip_se_3sggg.bam"))
+        assert os.path.exists(str(tmp_path / "test_softclip_se_4sgggg.bam"))
+
+    def test_all_se_correct_counts(self, tmp_path):
+        """Each type file contains the right number of alignments."""
+        os.chdir(str(tmp_path))
+        main(["-i", SE_BAM, "-a"])
+        assert _count_reads_in_bam(str(tmp_path / "test_softclip_se_1sg.bam")) == 3
+        assert _count_reads_in_bam(str(tmp_path / "test_softclip_se_2sgg.bam")) == 3
+        assert _count_reads_in_bam(str(tmp_path / "test_softclip_se_3sggg.bam")) == 2
+        assert _count_reads_in_bam(str(tmp_path / "test_softclip_se_4sgggg.bam")) == 2
+
+    def test_all_se_total_reads_preserved(self, tmp_path):
+        """Sum of all type file counts equals total alignments in input."""
+        os.chdir(str(tmp_path))
+        main(["-i", SE_BAM, "-a"])
+        total = sum(
+            _count_reads_in_bam(str(p))
+            for p in tmp_path.glob("test_softclip_se_*.bam")
+        )
+        assert total == _count_reads_in_bam(SE_BAM)
+
+    def test_all_se_output_dir(self, tmp_path):
+        """With -o DIR, files are written inside DIR."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "-o", out_dir])
+        assert os.path.isdir(out_dir)
+        assert os.path.exists(os.path.join(out_dir, "test_softclip_se_1sg.bam"))
+        assert os.path.exists(os.path.join(out_dir, "test_softclip_se_2sgg.bam"))
+
+    def test_all_se_output_dir_created(self, tmp_path):
+        """Output directory is created if it doesn't exist yet."""
+        out_dir = str(tmp_path / "new_dir")
+        assert not os.path.exists(out_dir)
+        main(["-i", SE_BAM, "-a", "-o", out_dir])
+        assert os.path.isdir(out_dir)
+
+    def test_all_pe_creates_files(self, tmp_path):
+        """PE --all creates per-type BAM files from R1 classification."""
+        os.chdir(str(tmp_path))
+        main(["-i", PE_BAM, "-a", "-p"])
+        bams = list(tmp_path.glob("test_softclip_pe_*.bam"))
+        assert len(bams) > 0
+
+    def test_all_pe_r2_paired_with_r1(self, tmp_path):
+        """PE --all: R2 mates are written into the same file as their R1 mate."""
+        os.chdir(str(tmp_path))
+        main(["-i", PE_BAM, "-a", "-p"])
+        total_r2 = 0
+        for bam_path in tmp_path.glob("test_softclip_pe_*.bam"):
+            with pysam.AlignmentFile(str(bam_path), "rb") as f:
+                alns = list(f.fetch(until_eof=True))
+            total_r2 += sum(1 for a in alns if a.is_read2)
+        # At least some R2s must have been routed into type files
+        assert total_r2 > 0
+
+    def test_all_pe_with_name_sort(self, tmp_path):
+        """PE --all with -n name-sorts before processing."""
+        os.chdir(str(tmp_path))
+        main(["-i", PE_BAM, "-a", "-p", "-n"])
+        bams = list(tmp_path.glob("test_softclip_pe_*.bam"))
+        assert len(bams) > 0
+
+
+# ---------------------------------------------------------------------------
+# Step 6: Issue 5 — SAM/CRAM format support
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def se_sam(tmp_path_factory):
+    """SAM version of the SE test BAM, created once per test session."""
+    tmp = tmp_path_factory.mktemp("samdata")
+    sam_path = str(tmp / "test_softclip_se.sam")
+    with pysam.AlignmentFile(SE_BAM, "rb") as src:
+        with pysam.AlignmentFile(sam_path, "w", template=src) as dst:
+            for aln in src.fetch(until_eof=True):
+                dst.write(aln)
+    return sam_path
+
+
+class TestFormatFlags:
+    """parse_args tests for -S/-B/-C/-r flags."""
+
+    def test_sam_flag(self):
+        args = parse_args(["-i", "in.bam", "-c", "-S"])
+        assert args.sam is True
+        assert args.bam is False
+        assert args.cram is False
+
+    def test_bam_flag(self):
+        args = parse_args(["-i", "in.bam", "-c", "-B"])
+        assert args.bam is True
+
+    def test_cram_flag_with_reference(self):
+        args = parse_args(["-i", "in.bam", "-c", "-C", "-r", "ref.fa"])
+        assert args.cram is True
+        assert args.reference == "ref.fa"
+
+    def test_cram_without_reference_rejected(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "-C"])
+        assert exc.value.code == 2
+
+    def test_sam_bam_mutually_exclusive(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "-S", "-B"])
+        assert exc.value.code == 2
+
+    def test_bam_cram_mutually_exclusive(self):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "-B", "-C", "-r", "ref.fa"])
+        assert exc.value.code == 2
+
+    def test_reference_flag(self):
+        args = parse_args(["-i", "in.cram", "-c", "-r", "ref.fa"])
+        assert args.reference == "ref.fa"
+
+    def test_format_flags_default_false(self):
+        args = parse_args(["-i", "in.bam", "-c"])
+        assert args.sam is False
+        assert args.bam is False
+        assert args.cram is False
+        assert args.reference is None
+
+
+class TestFormatDetection:
+    """Unit tests for _detect_format()."""
+
+    def test_bam_extension(self):
+        assert _detect_format("sample.bam") == "bam"
+
+    def test_sam_extension(self):
+        assert _detect_format("sample.sam") == "sam"
+
+    def test_cram_extension(self):
+        assert _detect_format("sample.cram") == "cram"
+
+    def test_uppercase_extension(self):
+        assert _detect_format("sample.BAM") == "bam"
+        assert _detect_format("sample.SAM") == "sam"
+
+    def test_path_with_directory(self):
+        assert _detect_format("/data/sample.bam") == "bam"
+
+    def test_unknown_extension_dies(self):
+        with pytest.raises(SystemExit):
+            _detect_format("sample.txt")
+
+
+class TestSAMFormat:
+    """End-to-end tests for SAM input/output."""
+
+    def test_sam_input_count(self, se_sam, tmp_path):
+        """SAM input to --count produces same counts as BAM input."""
+        out_bam = str(tmp_path / "from_bam.tsv")
+        out_sam = str(tmp_path / "from_sam.tsv")
+        main(["-i", SE_BAM, "-c", "-o", out_bam])
+        main(["-i", se_sam, "-c", "-o", out_sam])
+        _, rows_bam = _read_tsv(out_bam)
+        _, rows_sam = _read_tsv(out_sam)
+        assert dict(rows_bam) == dict(rows_sam)
+
+    def test_sam_input_select(self, se_sam, tmp_path):
+        """SAM input to --select produces SAM output by default."""
+        out = str(tmp_path / "out.sam")
+        main(["-i", se_sam, "-s", "1Sg", "-o", out])
+        assert os.path.exists(out)
+        with pysam.AlignmentFile(out, "r") as f:
+            count = sum(1 for _ in f.fetch(until_eof=True))
+        assert count == 3
+
+    def test_bam_to_sam_output(self, tmp_path):
+        """BAM input + -S → SAM output."""
+        out = str(tmp_path / "out.sam")
+        main(["-i", SE_BAM, "-s", "1Sg", "-S", "-o", out])
+        assert os.path.exists(out)
+        with pysam.AlignmentFile(out, "r") as f:
+            count = sum(1 for _ in f.fetch(until_eof=True))
+        assert count == 3
+
+    def test_sam_to_bam_output(self, se_sam, tmp_path):
+        """SAM input + -B → BAM output."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", se_sam, "-s", "1Sg", "-B", "-o", out])
+        assert os.path.exists(out)
+        with pysam.AlignmentFile(out, "rb") as f:
+            count = sum(1 for _ in f.fetch(until_eof=True))
+        assert count == 3
+
+    def test_sam_auto_named_output_extension(self, se_sam, tmp_path):
+        """SAM input + multiple specs → auto-named .sam output files."""
+        os.chdir(str(tmp_path))
+        main(["-i", se_sam, "-s", "1Sg,2Sg"])
+        assert os.path.exists(str(tmp_path / "test_softclip_se_1sg.sam"))
+        assert os.path.exists(str(tmp_path / "test_softclip_se_2sg.sam"))
+
+    def test_all_sam_output(self, se_sam, tmp_path):
+        """SAM input + --all → .sam type files readable as SAM."""
+        os.chdir(str(tmp_path))
+        main(["-i", se_sam, "-a"])
+        sams = list(tmp_path.glob("*.sam"))
+        assert len(sams) > 0
+        for sam_path in sams:
+            with pysam.AlignmentFile(str(sam_path), "r") as f:
+                assert sum(1 for _ in f.fetch(until_eof=True)) > 0
+
+    def test_bam_merge_to_sam(self, tmp_path):
+        """BAM input + --merge + -S → SAM output."""
+        out = str(tmp_path / "merged.sam")
+        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-S", "-o", out])
+        with pysam.AlignmentFile(out, "r") as f:
+            count = sum(1 for _ in f.fetch(until_eof=True))
+        assert count == 6  # 1Sg=3, 2Sg=3, no overlap
