@@ -13,11 +13,16 @@ Modes (mutually exclusive, exactly one required):
   -a, --all                      Split alignments into per-type BAM files
 
 Options:
-  -i, --input BAM[,BAM,...]      Input file(s), comma-separated (required)
+  -i, --input FILE[,FILE,...]    Input file(s), comma-separated; format auto-detected from extension (required)
+  -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
-  -n, --name                     Name-sort input BAM internally
+  -n, --name                     Name-sort input internally
   -t, --threads N                BGZF threads (default: 1)
   -p, --paired                   Paired-end mode
+  -S, --sam                      Force SAM output
+  -B, --bam                      Force BAM output
+  -C, --cram                     Force CRAM output (requires -r)
+  -r, --reference FASTA          Reference for CRAM input/output
   -h, --help                     Show this manual and exit
   -v, --version                  Print version and exit
 
@@ -54,6 +59,96 @@ def warn_once(key: str, message: str):
     _WARNED.add(key)
     sys.stderr.write(f"Warning: {message}\n")
 
+def _detect_format(path):
+    """Detect alignment format from file extension. Returns 'bam', 'sam', or 'cram'."""
+    ext = os.path.splitext(path)[1].lower()
+    mapping = {'.bam': 'bam', '.sam': 'sam', '.cram': 'cram'}
+    fmt = mapping.get(ext)
+    if fmt is None:
+        die(f"Cannot determine format for '{path}': unknown extension '{ext}'. "
+            "Rename with .bam/.sam/.cram or use -B/-S/-C.")
+    return fmt
+
+
+def _pysam_read_mode(fmt):
+    return {'bam': 'rb', 'sam': 'r', 'cram': 'rc'}[fmt]
+
+
+def _pysam_write_mode(fmt):
+    return {'bam': 'wb', 'sam': 'w', 'cram': 'wc'}[fmt]
+
+
+def _fmt_ext(fmt):
+    return {'bam': '.bam', 'sam': '.sam', 'cram': '.cram'}[fmt]
+
+
+def _resolve_out_fmt(in_fmt, args):
+    """Determine output format: explicit flag overrides; default matches input."""
+    if args.sam:  return 'sam'
+    if args.bam:  return 'bam'
+    if args.cram: return 'cram'
+    return in_fmt
+
+
+def _spool_and_detect_stdin():
+    """Spool stdin to a temp file; detect BAM vs SAM by magic bytes.
+
+    Returns (tmp_path, fmt) where fmt is 'bam' or 'sam'.
+    Caller is responsible for removing tmp_path.
+    """
+    fd, tmp_path = tempfile.mkstemp(prefix="pyselectal.stdin.", suffix=".tmp")
+    os.close(fd)
+    try:
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = sys.stdin.buffer.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception as e:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        die(f"Failed to spool stdin: {e}")
+    # BAM (BGZF) starts with gzip magic \x1f\x8b; SAM is plain text
+    fmt = 'sam'
+    try:
+        with open(tmp_path, "rb") as f:
+            magic = f.read(2)
+        if magic == b'\x1f\x8b':
+            fmt = 'bam'
+    except Exception:
+        pass
+    return tmp_path, fmt
+
+
+def _cram_to_temp_bam(in_path, threads, reference):
+    """Stream a CRAM file to a temp BAM (needed before pysam.sort which cannot pass a CRAM reference).
+
+    Returns tmp_path; caller is responsible for removal.
+    """
+    fd, tmp_path = tempfile.mkstemp(prefix="pyselectal.cram2bam.", suffix=".bam")
+    os.close(fd)
+    kw_in  = {'reference_filename': reference} if reference else {}
+    kw_out = {}
+    if threads > 1:
+        kw_in['threads']  = threads
+        kw_out['threads'] = threads
+    try:
+        with pysam.AlignmentFile(in_path, 'rc', **kw_in) as src:
+            with pysam.AlignmentFile(tmp_path, 'wb', template=src, **kw_out) as dst:
+                for aln in src.fetch(until_eof=True):
+                    dst.write(aln)
+    except Exception as e:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        die(f"Failed to convert CRAM to BAM: {e}")
+    return tmp_path
+
+
 def revcomp(seq: str) -> str:
     """
     Reverse-complement a DNA sequence (ACGTN, case-insensitive).
@@ -84,14 +179,15 @@ def get_5prime_cigar(aln):
     return (cig[-1] if aln.is_reverse else cig[0])
 
 
-def classify_5prime_type(aln):
+def classify_5prime_type(aln, mapped_prefix=5):
     """
     Classify an alignment's 5' end type as a string.
 
-    Returns e.g. '1Sg', '2Sgg', '3Saac', 'M', or None for unmapped.
+    Returns e.g. '1Sg', '2Sgg', '3Saac', '75Mgaggg', or None for unmapped.
     For soft-clipped reads: {length}S{sequence} (forward-strand sequence,
     reverse reads report the reverse-complement of the 3'-end soft-clip).
-    For mapped 5' ends: 'M'.
+    For mapped 5' ends: {match_length}M{first_N_bases} where N=mapped_prefix.
+    If mapped_prefix=0: returns {match_length}M with no sequence.
     """
     if aln.is_unmapped:
         return None
@@ -107,7 +203,17 @@ def classify_5prime_type(aln):
             sc_seq = seq[:length]
         return f"{length}S{sc_seq.lower()}"
     elif op == MATCH:
-        return "M"
+        if mapped_prefix == 0:
+            return f"{length}M"
+        seq = aln.query_sequence
+        if not seq:
+            return f"{length}M"
+        n = min(mapped_prefix, length)
+        if aln.is_reverse:
+            pfx = revcomp(seq[-n:])
+        else:
+            pfx = seq[:n]
+        return f"{length}M{pfx.lower()}"
     return None
 
 
@@ -483,6 +589,25 @@ def parse_args(argv):
     parser.add_argument("-o", "--output", type=str, default=None,
                         help="Output file path (overrides automatic naming).")
 
+    # Output format overrides (mutually exclusive)
+    fmt_group = parser.add_mutually_exclusive_group()
+    fmt_group.add_argument("-S", "--sam", action="store_true",
+                           help="Force SAM output.")
+    fmt_group.add_argument("-B", "--bam", action="store_true",
+                           help="Force BAM output.")
+    fmt_group.add_argument("-C", "--cram", action="store_true",
+                           help="Force CRAM output (requires -r/--reference).")
+
+    parser.add_argument("-r", "--reference", type=str, default=None,
+                        help="Reference FASTA for CRAM input/output.")
+
+    parser.add_argument("--collapse-threshold", type=float, default=5.0,
+                        metavar="PCT",
+                        help="Collapse categories below PCT%% into 'other' row in --count output (default: 5; 0 = off).")
+    parser.add_argument("--mapped-prefix", type=int, default=5,
+                        metavar="N",
+                        help="Bases of 5' matched sequence to show in --count output (default: 5; 0 = length only).")
+
     if pre_args.help or len(argv) == 0:
         sys.stdout.write(MANUAL)
         parser.print_help(sys.stdout)
@@ -518,6 +643,15 @@ def parse_args(argv):
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
 
+    if args.collapse_threshold < 0 or args.collapse_threshold >= 100:
+        parser.error("--collapse-threshold must be in [0, 100).")
+
+    if args.mapped_prefix < 0:
+        parser.error("--mapped-prefix must be >= 0.")
+
+    if args.cram and not args.reference:
+        parser.error("-C/--cram requires -r/--reference.")
+
     return args
 
 def name_sort_bam(in_bam_path, threads):
@@ -545,56 +679,39 @@ def name_sort_bam(in_bam_path, threads):
 
     return tmp_path
 
-def spool_stdin_to_temp_bam():
-    """
-    Copy stdin (BAM stream) to a temp file and return its path.
-    """
-    fd, tmp_path = tempfile.mkstemp(prefix="softclip5.stdin.", suffix=".bam")
-    os.close(fd)
-    try:
-        with open(tmp_path, "wb") as f:
-            # binary copy in chunks
-            while True:
-                chunk = sys.stdin.buffer.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-    except Exception as e:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        die(f"Failed to spool stdin to temp BAM: {e}")
-    return tmp_path
+def open_alignment_files(in_path, out_path, threads,
+                         in_fmt='bam', out_fmt='bam', reference=None):
+    """Open input and output alignment files with format and CRAM-reference support.
 
-def open_alignment_files(in_path, out_path, threads):
+    in_path/out_path may be '-' for stdin/stdout.
     """
-    Support '-' for stdin/stdout BAM streaming.
-    """
+    read_mode  = _pysam_read_mode(in_fmt)
+    write_mode = _pysam_write_mode(out_fmt)
+
+    kw_in = {}
+    if threads > 1:
+        kw_in['threads'] = threads
+    if in_fmt == 'cram' and reference:
+        kw_in['reference_filename'] = reference
+
     try:
         if in_path == "-":
-            if threads > 1:
-                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb", threads=threads)
-            else:
-                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb")
+            in_bam = pysam.AlignmentFile(sys.stdin.buffer, read_mode, **kw_in)
         else:
-            if threads > 1:
-                in_bam = pysam.AlignmentFile(in_path, "rb", threads=threads)
-            else:
-                in_bam = pysam.AlignmentFile(in_path, "rb")
+            in_bam = pysam.AlignmentFile(in_path, read_mode, **kw_in)
+
+        kw_out = {'template': in_bam}
+        if threads > 1:
+            kw_out['threads'] = threads
+        if out_fmt == 'cram' and reference:
+            kw_out['reference_filename'] = reference
 
         if out_path == "-":
-            if threads > 1:
-                out_bam = pysam.AlignmentFile(sys.stdout.buffer, "wb", template=in_bam, threads=threads)
-            else:
-                out_bam = pysam.AlignmentFile(sys.stdout.buffer, "wb", template=in_bam)
+            out_bam = pysam.AlignmentFile(sys.stdout.buffer, write_mode, **kw_out)
         else:
-            if threads > 1:
-                out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam, threads=threads)
-            else:
-                out_bam = pysam.AlignmentFile(out_path, "wb", template=in_bam)
+            out_bam = pysam.AlignmentFile(out_path, write_mode, **kw_out)
     except Exception as e:
-        die(f"Failed to open BAM(s): {e}")
+        die(f"Failed to open alignment files: {e}")
     return in_bam, out_bam
                                                         
 def process_select_se(in_bam, out_bam, spec):
@@ -648,7 +765,7 @@ def _flush_pe_group(records, spec, out_bam):
             out_bam.write(r)
 
 
-def _select_output_path(in_path, spec, args):
+def _select_output_path(in_path, spec, args, out_fmt):
     """Determine output path for a --select run."""
     if args.output:
         return args.output
@@ -656,15 +773,15 @@ def _select_output_path(in_path, spec, args):
     if len(args.input_files) == 1 and len(specs) == 1:
         return "-"  # stdout
     stem = os.path.splitext(os.path.basename(in_path))[0]
-    return f"{stem}_{spec['raw']}.bam"
+    return f"{stem}_{spec['raw']}{_fmt_ext(out_fmt)}"
 
 
-def _merge_output_path(in_path, args):
+def _merge_output_path(in_path, args, out_fmt):
     """Determine output path for a --select --merge run."""
     if args.output:
         return args.output
     stem = os.path.splitext(os.path.basename(in_path))[0]
-    return f"{stem}_merged.bam"
+    return f"{stem}_merged{_fmt_ext(out_fmt)}"
 
 
 def process_select_merge_se(in_bam, out_bam, specs):
@@ -734,16 +851,38 @@ def run_select(args):
 
     for in_path in args.input_files:
         actual_in = in_path
-        tmp_sorted = None
-
-        if args.name and in_path != "-":
-            tmp_sorted = name_sort_bam(in_path, args.threads)
-            actual_in = tmp_sorted
+        tmp_stdin   = None
+        tmp_cram2bam = None
+        tmp_sorted  = None
 
         try:
+            # Detect input format
+            if in_path == "-":
+                tmp_stdin, in_fmt = _spool_and_detect_stdin()
+                actual_in = tmp_stdin
+            else:
+                in_fmt = _detect_format(in_path)
+
+            if in_fmt == 'cram' and not args.reference:
+                die(f"CRAM input '{in_path}' requires -r/--reference.")
+
+            out_fmt = _resolve_out_fmt(in_fmt, args)
+            if out_fmt == 'cram' and not args.reference:
+                die("CRAM output requires -r/--reference.")
+
+            # Name sort: CRAM must first be converted to BAM
+            if args.name:
+                if in_fmt == 'cram':
+                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
+                    actual_in = tmp_cram2bam
+                tmp_sorted = name_sort_bam(actual_in, args.threads)
+                actual_in = tmp_sorted
+                in_fmt = 'bam'
+
             if args.merge:
-                out_path = _merge_output_path(in_path, args)
-                in_bam, out_bam = open_alignment_files(actual_in, out_path, args.threads)
+                out_path = _merge_output_path(in_path, args, out_fmt)
+                in_bam, out_bam = open_alignment_files(
+                    actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
                 try:
                     if args.paired:
                         process_select_merge_pe(in_bam, out_bam, specs)
@@ -754,8 +893,9 @@ def run_select(args):
                     in_bam.close()
             else:
                 for spec in specs:
-                    out_path = _select_output_path(in_path, spec, args)
-                    in_bam, out_bam = open_alignment_files(actual_in, out_path, args.threads)
+                    out_path = _select_output_path(in_path, spec, args, out_fmt)
+                    in_bam, out_bam = open_alignment_files(
+                        actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
                     try:
                         if args.paired:
                             process_select_pe(in_bam, out_bam, spec)
@@ -765,11 +905,12 @@ def run_select(args):
                         out_bam.close()
                         in_bam.close()
         finally:
-            if tmp_sorted:
-                try:
-                    os.remove(tmp_sorted)
-                except OSError:
-                    pass
+            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
+                if tmp:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
 
 
 def _count_output_path(in_path, args):
@@ -782,39 +923,60 @@ def _count_output_path(in_path, args):
     return f"{stem}_5prime_counts.tsv"
 
 
-def process_count_se(in_bam):
+def process_count_se(in_bam, mapped_prefix=5):
     """Count 5' end types for all alignments. Returns dict {type: count}."""
     counts = {}
     for aln in in_bam.fetch(until_eof=True):
-        t = classify_5prime_type(aln)
+        t = classify_5prime_type(aln, mapped_prefix=mapped_prefix)
         if t is not None:
             counts[t] = counts.get(t, 0) + 1
     return counts
 
 
-def process_count_pe(in_bam):
+def process_count_pe(in_bam, mapped_prefix=5):
     """Count 5' end types for R1 alignments only. Returns dict {type: count}."""
     counts = {}
     for aln in in_bam.fetch(until_eof=True):
         if not aln.is_read1:
             continue
-        t = classify_5prime_type(aln)
+        t = classify_5prime_type(aln, mapped_prefix=mapped_prefix)
         if t is not None:
             counts[t] = counts.get(t, 0) + 1
     return counts
 
 
-def write_count_tsv(counts, out_path):
-    """Write type\\tcount TSV sorted by descending count."""
-    sorted_types = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+def write_count_tsv(counts, out_path, collapse_threshold=5.0):
+    """Write type\\tcount TSV sorted by descending count.
+
+    Categories whose percentage of total is strictly below collapse_threshold
+    are collapsed into a single 'other (<N%)' row appended at the end.
+    collapse_threshold=0 disables collapsing.
+    """
+    total = sum(counts.values())
+    if collapse_threshold == 0 or total == 0:
+        main_rows = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+        other_count = 0
+    else:
+        main_items = []
+        other_count = 0
+        for t, c in counts.items():
+            if c / total * 100 < collapse_threshold:
+                other_count += c
+            else:
+                main_items.append((t, c))
+        main_rows = sorted(main_items, key=lambda x: (-x[1], x[0]))
+
     if out_path == "-":
         f = sys.stdout
     else:
         f = open(out_path, "w")
     try:
         f.write("type\tcount\n")
-        for t, c in sorted_types:
+        for t, c in main_rows:
             f.write(f"{t}\t{c}\n")
+        if other_count > 0:
+            label = f"other (<{collapse_threshold:g}%)"
+            f.write(f"{label}\t{other_count}\n")
     finally:
         if out_path != "-":
             f.close()
@@ -824,36 +986,208 @@ def run_count(args):
     """Execute --count mode."""
     for in_path in args.input_files:
         actual_in = in_path
-        tmp_sorted = None
-
-        if args.name and in_path != "-":
-            tmp_sorted = name_sort_bam(in_path, args.threads)
-            actual_in = tmp_sorted
+        tmp_stdin   = None
+        tmp_cram2bam = None
+        tmp_sorted  = None
 
         try:
-            if actual_in == "-":
-                in_bam = pysam.AlignmentFile(sys.stdin.buffer, "rb")
-            elif args.threads > 1:
-                in_bam = pysam.AlignmentFile(actual_in, "rb", threads=args.threads)
+            # Detect input format
+            if in_path == "-":
+                tmp_stdin, in_fmt = _spool_and_detect_stdin()
+                actual_in = tmp_stdin
             else:
-                in_bam = pysam.AlignmentFile(actual_in, "rb")
+                in_fmt = _detect_format(in_path)
+
+            if in_fmt == 'cram' and not args.reference:
+                die(f"CRAM input '{in_path}' requires -r/--reference.")
+
+            # Name sort
+            if args.name:
+                if in_fmt == 'cram':
+                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
+                    actual_in = tmp_cram2bam
+                tmp_sorted = name_sort_bam(actual_in, args.threads)
+                actual_in = tmp_sorted
+                in_fmt = 'bam'
+
+            kw = {}
+            if args.threads > 1:
+                kw['threads'] = args.threads
+            if in_fmt == 'cram' and args.reference:
+                kw['reference_filename'] = args.reference
+            in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
 
             try:
                 if args.paired:
-                    counts = process_count_pe(in_bam)
+                    counts = process_count_pe(in_bam, mapped_prefix=args.mapped_prefix)
                 else:
-                    counts = process_count_se(in_bam)
+                    counts = process_count_se(in_bam, mapped_prefix=args.mapped_prefix)
             finally:
                 in_bam.close()
 
             out_path = _count_output_path(in_path, args)
-            write_count_tsv(counts, out_path)
+            write_count_tsv(counts, out_path, collapse_threshold=args.collapse_threshold)
         finally:
-            if tmp_sorted:
-                try:
-                    os.remove(tmp_sorted)
-                except OSError:
-                    pass
+            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
+                if tmp:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+
+
+def _all_output_path(in_path, type_str, args, out_fmt):
+    """Determine output path for a --all type file."""
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    fname = f"{stem}_{type_str.lower()}{_fmt_ext(out_fmt)}"
+    if args.output:
+        return os.path.join(args.output, fname)
+    return fname
+
+
+def _get_or_open_all_file(type_str, in_bam, in_path, args, open_files):
+    """Return open output file for type_str, opening lazily if needed.
+
+    Expects args.out_fmt and args.reference to be set by run_all.
+    """
+    if type_str not in open_files:
+        out_path = _all_output_path(in_path, type_str, args, args.out_fmt)
+        kw = {'template': in_bam}
+        if args.threads > 1:
+            kw['threads'] = args.threads
+        if args.out_fmt == 'cram' and args.reference:
+            kw['reference_filename'] = args.reference
+        open_files[type_str] = pysam.AlignmentFile(
+            out_path, _pysam_write_mode(args.out_fmt), **kw)
+    return open_files[type_str]
+
+
+def process_all_se(in_bam, in_path, args):
+    """Single-end --all: write each alignment to its type-specific BAM."""
+    open_files = {}
+    try:
+        for aln in in_bam.fetch(until_eof=True):
+            t = classify_5prime_type(aln)
+            if t is None:
+                continue
+            out = _get_or_open_all_file(t, in_bam, in_path, args, open_files)
+            out.write(aln)
+    finally:
+        for f in open_files.values():
+            f.close()
+
+
+def _flush_pe_group_all(records, in_bam, in_path, args, open_files):
+    """Route each R1 (by type) and its R2 mates into the matching output BAM."""
+    if not records:
+        return
+
+    mate_type = {}
+    for r in records:
+        if not r.is_read1:
+            continue
+        t = classify_5prime_type(r)
+        if t is None:
+            continue
+        out = _get_or_open_all_file(t, in_bam, in_path, args, open_files)
+        out.write(r)
+        if (r.next_reference_id is not None and r.next_reference_start is not None
+                and r.next_reference_id >= 0 and r.next_reference_start >= 0):
+            mate_type[(r.next_reference_id, r.next_reference_start)] = t
+
+    for r in records:
+        if not r.is_read2:
+            continue
+        t = mate_type.get((r.reference_id, r.reference_start))
+        if t is not None:
+            open_files[t].write(r)
+
+
+def process_all_pe(in_bam, in_path, args):
+    """Paired-end --all: group by query_name, route R1+R2 pairs by R1 type."""
+    open_files = {}
+    current_qname = None
+    group = []
+
+    try:
+        for aln in in_bam.fetch(until_eof=True):
+            qn = aln.query_name
+            if current_qname is None:
+                current_qname = qn
+                group = [aln]
+            elif qn == current_qname:
+                group.append(aln)
+            else:
+                _flush_pe_group_all(group, in_bam, in_path, args, open_files)
+                current_qname = qn
+                group = [aln]
+
+        if group:
+            _flush_pe_group_all(group, in_bam, in_path, args, open_files)
+    finally:
+        for f in open_files.values():
+            f.close()
+
+
+def run_all(args):
+    """Execute --all mode."""
+    for in_path in args.input_files:
+        actual_in = in_path
+        tmp_stdin   = None
+        tmp_cram2bam = None
+        tmp_sorted  = None
+
+        try:
+            # Detect input format
+            if in_path == "-":
+                tmp_stdin, in_fmt = _spool_and_detect_stdin()
+                actual_in = tmp_stdin
+            else:
+                in_fmt = _detect_format(in_path)
+
+            if in_fmt == 'cram' and not args.reference:
+                die(f"CRAM input '{in_path}' requires -r/--reference.")
+
+            out_fmt = _resolve_out_fmt(in_fmt, args)
+            if out_fmt == 'cram' and not args.reference:
+                die("CRAM output requires -r/--reference.")
+
+            # Attach resolved output format to args so helpers can access it
+            args.out_fmt = out_fmt
+
+            # Name sort
+            if args.name:
+                if in_fmt == 'cram':
+                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
+                    actual_in = tmp_cram2bam
+                tmp_sorted = name_sort_bam(actual_in, args.threads)
+                actual_in = tmp_sorted
+                in_fmt = 'bam'
+
+            kw = {}
+            if args.threads > 1:
+                kw['threads'] = args.threads
+            if in_fmt == 'cram' and args.reference:
+                kw['reference_filename'] = args.reference
+            in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
+
+            if args.output:
+                os.makedirs(args.output, exist_ok=True)
+
+            try:
+                if args.paired:
+                    process_all_pe(in_bam, in_path, args)
+                else:
+                    process_all_se(in_bam, in_path, args)
+            finally:
+                in_bam.close()
+        finally:
+            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
+                if tmp:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
 
 
 def main(argv=None):
@@ -867,7 +1201,7 @@ def main(argv=None):
     elif args.count:
         run_count(args)
     elif getattr(args, 'all'):
-        die("--all mode is not yet implemented.")
+        run_all(args)
 
 if __name__ == "__main__":
     main()
