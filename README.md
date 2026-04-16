@@ -52,7 +52,7 @@ You can then run it directly:
 
 ## Usage
 
-`pyselectal` takes one or more alignment files (BAM, SAM, or CRAM) containing local alignments (e.g. produced by [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`). The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
+`pyselectal` takes one or more alignment files (BAM, SAM, or CRAM) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
 
 ```bash
 pyselectal.py -i FILE[,FILE,...] <mode> [options]
