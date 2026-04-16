@@ -99,7 +99,7 @@ Modes (mutually exclusive, exactly one required):
 
 `--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
 
-`--collapse-threshold PCT` — In `--count` output, collapse categories below PCT% into an `other` row (default: 5; 0 = off).
+`--collapse-threshold PCT` — In `--count` output, collapse categories below PCT% into an `other` row (default: 1; 0 = off).
 
 `-h, --help` — Display a full manual and exit.
 

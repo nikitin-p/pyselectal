@@ -601,9 +601,9 @@ def parse_args(argv):
     parser.add_argument("-r", "--reference", type=str, default=None,
                         help="Reference FASTA for CRAM input/output.")
 
-    parser.add_argument("--collapse-threshold", type=float, default=5.0,
+    parser.add_argument("--collapse-threshold", type=float, default=1.0,
                         metavar="PCT",
-                        help="Collapse categories below PCT%% into 'other' row in --count output (default: 5; 0 = off).")
+                        help="Collapse categories below PCT%% into 'other' row in --count output (default: 1; 0 = off).")
     parser.add_argument("--mapped-prefix", type=int, default=5,
                         metavar="N",
                         help="Bases of 5' matched sequence to show in --count output (default: 5; 0 = length only).")
@@ -945,7 +945,7 @@ def process_count_pe(in_bam, mapped_prefix=5):
     return counts
 
 
-def write_count_tsv(counts, out_path, collapse_threshold=5.0):
+def write_count_tsv(counts, out_path, collapse_threshold=1.0):
     """Write type\\tcount TSV sorted by descending count.
 
     Categories whose percentage of total is strictly below collapse_threshold
