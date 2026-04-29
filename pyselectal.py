@@ -91,9 +91,9 @@ def _resolve_out_fmt(in_fmt, args):
 
 
 def _spool_and_detect_stdin():
-    """Spool stdin to a temp file; detect BAM vs SAM by magic bytes.
+    """Spool stdin to a temp file; detect BAM/CRAM/SAM by magic bytes.
 
-    Returns (tmp_path, fmt) where fmt is 'bam' or 'sam'.
+    Returns (tmp_path, fmt) where fmt is 'bam', 'cram', or 'sam'.
     Caller is responsible for removing tmp_path.
     """
     fd, tmp_path = tempfile.mkstemp(prefix="pyselectal.stdin.", suffix=".tmp")
@@ -111,12 +111,14 @@ def _spool_and_detect_stdin():
         except OSError:
             pass
         die(f"Failed to spool stdin: {e}")
-    # BAM (BGZF) starts with gzip magic \x1f\x8b; SAM is plain text
+    # CRAM starts with b'CRAM'; BAM (BGZF) starts with gzip magic \x1f\x8b; SAM is plain text
     fmt = 'sam'
     try:
         with open(tmp_path, "rb") as f:
-            magic = f.read(2)
-        if magic == b'\x1f\x8b':
+            magic = f.read(4)
+        if magic[:4] == b'CRAM':
+            fmt = 'cram'
+        elif magic[:2] == b'\x1f\x8b':
             fmt = 'bam'
     except Exception:
         pass
