@@ -4,9 +4,11 @@ import os
 import tempfile
 import pytest
 import pysam
+import io
+from unittest import mock
 from pyselectal import (
     parse_args, parse_spec, spec_matches_aln, classify_5prime_type, write_count_tsv,
-    main, VERSION, _detect_format,
+    main, VERSION, _detect_format, _spool_and_detect_stdin,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -1201,3 +1203,94 @@ class TestAllCollapse:
         # At high threshold everything collapses; R2s must also be present
         r2_count = sum(1 for a in alns if a.is_read2)
         assert r2_count > 0
+
+
+# ---------------------------------------------------------------------------
+# Step 8: CRAM via stdin/stdout
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def cram_fixture(tmp_path_factory):
+    """Creates a minimal FASTA reference + CRAM with one 1Sg read for stdin/stdout tests."""
+    tmp = tmp_path_factory.mktemp("cramdata")
+    ref_fa = str(tmp / "mini_ref.fa")
+    cram_path = str(tmp / "mini.cram")
+    chrom, chrom_len = "testchr", 200
+    with open(ref_fa, "w") as fh:
+        fh.write(f">{chrom}\n" + "A" * chrom_len + "\n")
+    pysam.faidx(ref_fa)
+    header = pysam.AlignmentHeader.from_dict({
+        "HD": {"VN": "1.6", "SO": "coordinate"},
+        "SQ": [{"SN": chrom, "LN": chrom_len}],
+    })
+    with pysam.AlignmentFile(cram_path, "wc", reference_filename=ref_fa, header=header) as dst:
+        r = pysam.AlignedSegment(header)
+        r.query_name = "READ1"
+        r.flag = 0
+        r.reference_id = 0
+        r.reference_start = 0
+        r.mapping_quality = 30
+        r.cigar = [(4, 1), (0, 75)]  # 1S75M
+        r.query_sequence = "G" + "A" * 75
+        r.query_qualities = pysam.qualitystring_to_array("I" * 76)
+        dst.write(r)
+    return cram_path, ref_fa
+
+
+class TestCRAMStdin:
+    """Step 8: CRAM detection from stdin and CRAM output."""
+
+    def test_stdin_cram_detected(self, cram_fixture, tmp_path):
+        """CRAM bytes piped to stdin are detected as 'cram' format."""
+        cram_path, _ = cram_fixture
+        with open(cram_path, "rb") as f:
+            cram_data = f.read()
+        with mock.patch("sys.stdin", mock.MagicMock(buffer=io.BytesIO(cram_data))):
+            tmp_spooled, fmt = _spool_and_detect_stdin()
+        try:
+            assert fmt == "cram"
+        finally:
+            os.remove(tmp_spooled)
+
+    def test_stdin_bam_still_detected(self, tmp_path):
+        """BAM bytes piped to stdin are still detected as 'bam' format."""
+        with open(SE_BAM, "rb") as f:
+            bam_data = f.read()
+        with mock.patch("sys.stdin", mock.MagicMock(buffer=io.BytesIO(bam_data))):
+            tmp_spooled, fmt = _spool_and_detect_stdin()
+        try:
+            assert fmt == "bam"
+        finally:
+            os.remove(tmp_spooled)
+
+    def test_stdin_cram_requires_reference(self, cram_fixture):
+        """CRAM from stdin without -r raises SystemExit."""
+        cram_path, _ = cram_fixture
+        with open(cram_path, "rb") as f:
+            cram_data = f.read()
+        with mock.patch("sys.stdin", mock.MagicMock(buffer=io.BytesIO(cram_data))):
+            with pytest.raises(SystemExit):
+                main(["-i", "-", "-c"])
+
+    def test_cram_output_has_magic(self, cram_fixture, tmp_path):
+        """CRAM file input + -C → output file starts with CRAM magic bytes."""
+        cram_path, ref_fa = cram_fixture
+        out = str(tmp_path / "out.cram")
+        main(["-i", cram_path, "-s", "1Sg", "-C", "-r", ref_fa, "-o", out])
+        assert os.path.isfile(out)
+        with open(out, "rb") as f:
+            magic = f.read(4)
+        assert magic == b"CRAM"
+
+    def test_stdin_cram_roundtrip(self, cram_fixture, tmp_path):
+        """Full pipe: CRAM bytes on stdin, --select 1Sg, BAM output → correct read count."""
+        cram_path, ref_fa = cram_fixture
+        with open(cram_path, "rb") as f:
+            cram_data = f.read()
+        out = str(tmp_path / "out.bam")
+        with mock.patch("sys.stdin", mock.MagicMock(buffer=io.BytesIO(cram_data))):
+            main(["-i", "-", "-s", "1Sg", "-r", ref_fa, "-B", "-o", out])
+        assert os.path.isfile(out)
+        with pysam.AlignmentFile(out, "rb") as f:
+            count = sum(1 for _ in f.fetch(until_eof=True))
+        assert count == 1

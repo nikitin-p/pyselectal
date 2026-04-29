@@ -70,7 +70,7 @@ tool_1 | \
   tool_2 > output.file
 ```
 
-A dash (`-`) as the input reads from `stdin` (BAM or SAM auto-detected; CRAM not supported from `stdin`). When a single input and a single `--select` spec are given without `-o`, output goes to `stdout`.
+A dash (`-`) as the input reads from `stdin` (BAM, SAM, or CRAM auto-detected by magic bytes; CRAM requires `-r`). When a single input and a single `--select` spec are given without `-o`, output goes to `stdout`.
 
 ## Options
 
@@ -99,7 +99,7 @@ Modes (mutually exclusive, exactly one required):
 
 `--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
 
-`--collapse-threshold PCT` — In `--count` output, collapse categories below PCT% into an `other` row (default: 1; 0 = off).
+`--collapse-threshold PCT` — Collapse 5′-end type categories strictly below PCT% of total into an `other` row (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
 
 `-h, --help` — Display a full manual and exit.
 
@@ -117,7 +117,7 @@ Scans all alignments and writes a TSV histogram of 5′-end types. Columns: `typ
 
 #### `--all`
 
-Writes each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped.
+Writes each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file instead of individual per-type files.
 
 ### Spec grammar
 
@@ -208,6 +208,18 @@ pyselectal.py -i in.bam --count -o counts.tsv
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
+```
+
+**11. Split by type with rare-type collapsing.** As above, but types accounting for less than 5% of reads are written to `out_dir/in_other.bam` instead of individual files.
+
+```bash
+pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
+```
+
+**12. CRAM from stdin.** Pipe a CRAM stream into `pyselectal` with a reference.
+
+```bash
+cat in.cram | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
 ```
 
 ## Test data
