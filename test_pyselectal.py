@@ -853,7 +853,7 @@ class TestCollapseThreshold:
         assert sum(c for _, c in rows) == 100
 
     def test_collapse_cli_default(self, tmp_path):
-        """Default threshold 5% applies in --count output."""
+        """Default threshold 1% applies in --count output."""
         # SE BAM: 1Sg=3(30%), 2Sgg=3(30%), 3Sggg=2(20%), 4Sgggg=2(20%) — none collapse
         out = str(tmp_path / "counts.tsv")
         main(["-i", SE_BAM, "-c", "-o", out])
@@ -883,7 +883,7 @@ class TestCollapseThreshold:
 
     def test_collapse_parse_args_default(self):
         args = parse_args(["-i", "in.bam", "-c"])
-        assert args.collapse_threshold == 5.0
+        assert args.collapse_threshold == 1.0
 
     def test_collapse_parse_args_custom(self):
         args = parse_args(["-i", "in.bam", "-c", "--collapse-threshold", "10"])
@@ -1132,3 +1132,72 @@ class TestSAMFormat:
         with pysam.AlignmentFile(out, "r") as f:
             count = sum(1 for _ in f.fetch(until_eof=True))
         assert count == 6  # 1Sg=3, 2Sg=3, no overlap
+
+
+# ---------------------------------------------------------------------------
+# Step 7: --collapse-threshold in --all
+# ---------------------------------------------------------------------------
+
+# SE BAM type distribution (all are >= 20%, so threshold must be > 20% to trigger collapse):
+#   1Sg=3 (30%), 2Sgg=3 (30%), 3Sggg=2 (20%), 4Sgggg=2 (20%)
+
+class TestAllCollapse:
+    """Tests for --collapse-threshold in --all mode."""
+
+    def test_all_collapse_high_threshold_creates_other(self, tmp_path):
+        """threshold=25%: 3Sggg(20%) and 4Sgggg(20%) route to _other.bam."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
+        other = os.path.join(out_dir, "test_softclip_se_other.bam")
+        assert os.path.exists(other)
+        assert _count_reads_in_bam(other) == 4  # 2 + 2
+
+    def test_all_collapse_high_threshold_no_rare_type_files(self, tmp_path):
+        """threshold=25%: no per-type files for 3Sggg or 4Sgggg."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_3sggg.bam"))
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_4sgggg.bam"))
+
+    def test_all_collapse_zero_disables(self, tmp_path):
+        """--collapse-threshold 0 produces one file per type (no other)."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "0", "-o", out_dir])
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other.bam"))
+        assert os.path.exists(os.path.join(out_dir, "test_softclip_se_3sggg.bam"))
+        assert os.path.exists(os.path.join(out_dir, "test_softclip_se_4sgggg.bam"))
+        assert _count_reads_in_bam(os.path.join(out_dir, "test_softclip_se_3sggg.bam")) == 2
+        assert _count_reads_in_bam(os.path.join(out_dir, "test_softclip_se_4sgggg.bam")) == 2
+
+    def test_all_collapse_total_reads_preserved(self, tmp_path):
+        """Sum across all output files (including other) equals input total."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
+        total = sum(
+            _count_reads_in_bam(str(p))
+            for p in (tmp_path / "split").glob("test_softclip_se_*.bam")
+        )
+        assert total == _count_reads_in_bam(SE_BAM)
+
+    def test_all_collapse_other_bam_contents(self, tmp_path):
+        """_other.bam contains alignments from all rare types combined."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
+        other = os.path.join(out_dir, "test_softclip_se_other.bam")
+        with pysam.AlignmentFile(other, "rb") as f:
+            names = {a.query_name for a in f.fetch(until_eof=True)}
+        # 3Sggg: READ3(0), READ2(272); 4Sgggg: READ5(0), READ5(2064)
+        assert "READ3" in names
+        assert "READ5" in names
+
+    def test_all_collapse_pe_uses_r1_counts(self, tmp_path):
+        """PE collapse is computed from R1 only; R2 mates follow their R1 into other."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", PE_BAM, "-a", "-p", "--collapse-threshold", "99", "-o", out_dir])
+        other = os.path.join(out_dir, "test_softclip_pe_other.bam")
+        assert os.path.exists(other)
+        with pysam.AlignmentFile(other, "rb") as f:
+            alns = list(f.fetch(until_eof=True))
+        # At high threshold everything collapses; R2s must also be present
+        r2_count = sum(1 for a in alns if a.is_read2)
+        assert r2_count > 0

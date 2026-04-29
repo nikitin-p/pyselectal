@@ -1062,7 +1062,7 @@ def _get_or_open_all_file(type_str, in_bam, in_path, args, open_files):
     return open_files[type_str]
 
 
-def process_all_se(in_bam, in_path, args):
+def process_all_se(in_bam, in_path, args, collapse_types=None):
     """Single-end --all: write each alignment to its type-specific BAM."""
     open_files = {}
     try:
@@ -1070,14 +1070,15 @@ def process_all_se(in_bam, in_path, args):
             t = classify_5prime_type(aln)
             if t is None:
                 continue
-            out = _get_or_open_all_file(t, in_bam, in_path, args, open_files)
+            effective_t = "other" if (collapse_types and t in collapse_types) else t
+            out = _get_or_open_all_file(effective_t, in_bam, in_path, args, open_files)
             out.write(aln)
     finally:
         for f in open_files.values():
             f.close()
 
 
-def _flush_pe_group_all(records, in_bam, in_path, args, open_files):
+def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_types=None):
     """Route each R1 (by type) and its R2 mates into the matching output BAM."""
     if not records:
         return
@@ -1089,11 +1090,12 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files):
         t = classify_5prime_type(r)
         if t is None:
             continue
-        out = _get_or_open_all_file(t, in_bam, in_path, args, open_files)
+        effective_t = "other" if (collapse_types and t in collapse_types) else t
+        out = _get_or_open_all_file(effective_t, in_bam, in_path, args, open_files)
         out.write(r)
         if (r.next_reference_id is not None and r.next_reference_start is not None
                 and r.next_reference_id >= 0 and r.next_reference_start >= 0):
-            mate_type[(r.next_reference_id, r.next_reference_start)] = t
+            mate_type[(r.next_reference_id, r.next_reference_start)] = effective_t
 
     for r in records:
         if not r.is_read2:
@@ -1103,7 +1105,7 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files):
             open_files[t].write(r)
 
 
-def process_all_pe(in_bam, in_path, args):
+def process_all_pe(in_bam, in_path, args, collapse_types=None):
     """Paired-end --all: group by query_name, route R1+R2 pairs by R1 type."""
     open_files = {}
     current_qname = None
@@ -1118,12 +1120,12 @@ def process_all_pe(in_bam, in_path, args):
             elif qn == current_qname:
                 group.append(aln)
             else:
-                _flush_pe_group_all(group, in_bam, in_path, args, open_files)
+                _flush_pe_group_all(group, in_bam, in_path, args, open_files, collapse_types)
                 current_qname = qn
                 group = [aln]
 
         if group:
-            _flush_pe_group_all(group, in_bam, in_path, args, open_files)
+            _flush_pe_group_all(group, in_bam, in_path, args, open_files, collapse_types)
     finally:
         for f in open_files.values():
             f.close()
@@ -1169,16 +1171,33 @@ def run_all(args):
                 kw['threads'] = args.threads
             if in_fmt == 'cram' and args.reference:
                 kw['reference_filename'] = args.reference
-            in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
+
+            # Pass 1: count types to determine which to collapse
+            collapse_types = set()
+            if args.collapse_threshold > 0:
+                in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
+                try:
+                    if args.paired:
+                        counts = process_count_pe(in_bam, mapped_prefix=args.mapped_prefix)
+                    else:
+                        counts = process_count_se(in_bam, mapped_prefix=args.mapped_prefix)
+                finally:
+                    in_bam.close()
+                total = sum(counts.values())
+                if total > 0:
+                    collapse_types = {t for t, c in counts.items()
+                                      if c / total * 100 < args.collapse_threshold}
 
             if args.output:
                 os.makedirs(args.output, exist_ok=True)
 
+            # Pass 2: route alignments, collapsing rare types into "other"
+            in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
             try:
                 if args.paired:
-                    process_all_pe(in_bam, in_path, args)
+                    process_all_pe(in_bam, in_path, args, collapse_types=collapse_types)
                 else:
-                    process_all_se(in_bam, in_path, args)
+                    process_all_se(in_bam, in_path, args, collapse_types=collapse_types)
             finally:
                 in_bam.close()
         finally:
