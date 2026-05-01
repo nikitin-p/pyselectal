@@ -52,188 +52,174 @@ You can then run it directly:
 
 ## Usage
 
-`pyselectal` takes a BAM file containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The input BAM is assumed to be name-sorted, unless the `-s` option is set (see [Options](#options)). SAM files are not supported. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
+`pyselectal` takes one or more alignment files (BAM, SAM, or CRAM) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
 
 ```bash
-pyselectal.py [options] in.bam out.bam
+pyselectal.py -i FILE[,FILE,...] <mode> [options]
 ```
 
-You can also use `pyselectal` with a pipe:  
+Exactly one mode must be specified: `--select`, `--count`, or `--all`.
+
+For paired-end input, reads must be name-sorted; use `--name` to sort internally if needed.
+
+You can also use `pyselectal` with a pipe:
 
 ```bash
 tool_1 | \
-  pyselectal.py [options] - - | \
+  pyselectal.py -i - <mode> [options] | \
   tool_2 > output.file
 ```
 
-where the first dash in the `pyselectal` command stands for the input file (taken from `stdin`), and the second dash stands for the output file (streamed to `stdout`).
+A dash (`-`) as the input reads from `stdin` (BAM, SAM, or CRAM auto-detected by magic bytes; CRAM requires `-r`). When a single input and a single `--select` spec are given without `-o`, output goes to `stdout`.
 
 ## Options
 
-**Important:** Either `-n`, or `-m` must be specified. 
+```text
+Modes (mutually exclusive, exactly one required):
+  -s, --select SPEC[,SPEC,...]   Select alignments by 5′ end type
+  -c, --count                    Output TSV histogram of 5′ end types
+  -a, --all                      Split alignments into per-type files
+```
 
-`-n, --min-softclip`	Select alignments whose 5′ end has *at least* `n` soft-clipped bases (optional). If missing, $n = 0$ by default.
+`-i, --input FILE[,FILE,...]` — Input file(s). Format auto-detected from extension (`.bam`, `.sam`, `.cram`). Use `-` for `stdin`. Required.
 
-`-m, --max-softclip`	Select alignments whose 5′ end has *at most* `m` soft-clipped bases (optional). If missing, any number of soft-clipped bases above $n$ is allowed.
+`-o, --output PATH` — Output file path (for `--select`) or directory (for `--all`). Overrides automatic naming.
 
-`-x, --prefix`	Select alignments in which the 5′ end *of the read* matches either a specific prefix sequence, or a homopolymer (defined by a single base), with the exact interpretation depending on the selected mode (see below).
+`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`-k, --match`	Used only when selecting alignments with a matched 5' end (`-n 0 -m 0`). Require a minimum of $k$ bases a the 5' end of the read to match the reference sequence. This option tests for the presence of a $K$`M` operator at the beginning of a CIGAR string, where $K\geq k$. If, additionally, `--prefix` is set, then this options tests for a minimal matched prefix length. **Caveat:** As this option selects alignments whose CIGAR string begins with an `M` operator, the actual bases at the 5' end of the respective reads may match *or mismatch* the reference sequence (see [the definition of the SAM format](https://samtools.github.io/hts-specs/SAMv1.pdf)).
+`-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
 
-`-s, --sort`	Internally name-sort the input BAM file before processing (using pysam.sort).
+`-t, --threads N` — BGZF compression/decompression threads (default: 1).
 
-`-t, --threads`	Use the specified number of BGZF compression/decompression threads (default: 1).
+`-p, --paired` — Paired-end mode: selection is applied to R1; matching R2 mates are included automatically.
 
-`-p, --paired`	Indicate that the input alignments are of paired-end reads; by default, the program assumes single-end read alignments.
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
 
-`-h, --help`	Display a full manual and exit.
+`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
 
-`-v, --version` Print the program version and exit.
+`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
+
+`--collapse-threshold PCT` — Collapse 5′-end type categories strictly below PCT% of total into an `other` row (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
+
+`-h, --help` — Display a full manual and exit.
+
+`-v, --version` — Print the program version and exit.
 
 ### Modes of operation
 
-The behaviour is determined by the relationship between `-n` and `-m`.
+#### `--select SPEC[,SPEC,...]`
 
-#### Mode 1 – Exact 5′ soft-clip (n = m > 0)
+Filters alignments whose 5′ end matches one or more specs (see [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
 
-Select alignments that have an exact n-bp soft-clip at the 5′ end.
-If `--prefix` is provided, select only alignments such that the soft-clipped sequence matches the specified prefix of length n.
+#### `--count`
 
-Plus strand alignments: the 5′ soft-clipped sequence equals prefix.
-Minus strand alignments: the 5′ soft-clipped sequence equals reverse complement of prefix.
+Scans all alignments and writes a TSV histogram of 5′-end types. Columns: `type`, `count`. Rows are sorted by descending count; categories strictly below `--collapse-threshold`% are folded into an `other` row. Output goes to `stdout` for a single input, or `{stem}_5prime_counts.tsv` for multiple inputs.
 
-#### Mode 2 — Soft-clip range (0 ≤ n < m)
+#### `--all`
 
-Select alignments that have a 5′ soft-clip of length x, where n ≤ x ≤ m.
-If `--prefix` is provided, it must be a single base (A, C, G, T, or N).
+Writes each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file instead of individual per-type files.
 
-Plus strand alignments: all 5′ soft-clipped bases equal the specified base.
-Minus strand alignments: all 5′ soft-clipped bases equal the complement of that base.
+### Spec grammar
 
-#### Mode 3 — Mapped 5′-end (n = m = 0)
+A spec describes a 5′-end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 
-Select alignments that have a mapped 5′ end (i.e. the 5′ CIGAR operation is M).
-This mode supports two selection strategies.
+| Part | Meaning |
+| --- | --- |
+| `S` | Soft-clipped 5′ end |
+| `M` | Mapped 5′ end |
+| `n` (before S) | Exactly n soft-clipped bases |
+| `n` (before M) | At least n matched bases |
+| `n.m` | Between n and m bases (inclusive) |
+| `n.` | At least n bases |
+| `.m` | At most m bases |
+| `seq` | Required sequence at the 5′ end of the read |
 
-**A.** Length-only matching (`-k` without `--prefix`)
-Select alignments that have at least k aligned MATCH bases at the 5′ end (5′ CIGAR M length ≥ k), without checking sequence content.
+Reverse-strand reads are handled automatically (sequence is reverse-complemented before matching).
 
-If k = 0, this reduces to selecting alignments that have a mapped 5′ end (5′ CIGAR operation = M).
+Examples:
 
-**B.** Prefix-based matching (`--prefix`)
-Select alignments whose mapped 5′ end matches the full prefix sequence.
-
-Plus strand alignments: the read sequence starts with prefix.
-Minus strand alignments: the read sequence ends with reverse complement of prefix.
-
-Interaction with `-k`:
-
-If k ≤ len(prefix) (including k = 0), selection is based only on the full prefix match and `-k` is ignored. A warning message will be shown.
-
-If k > len(prefix), select alignments that satisfy both:
-a full prefix match (as above), and
-at least k aligned MATCH bases at the 5′ end (5′ CIGAR M length ≥ k).
-
-### Paired-end behaviour
-
-When `--paired` is enabled, input alignments are treated as paired-end reads and are grouped by `query_name`.
-Selection is applied only to forward reads (read 1, R1) according to the chosen mode.
-
-For each R1 that passes the selection criteria:
-
-the R1 alignment is written to the output, and
-any corresponding reverse read (R2) whose (`reference_id`, `reference_start`) matches the mate coordinates recorded in R1 is also written.
-
-Input alignments must be name-sorted; otherwise, internal name sorting must be enabled using `--sort`.
+| Spec | Meaning |
+| --- | --- |
+| `1Sg` | Exactly 1 soft-clipped G |
+| `2.Sgg` | 2 or more soft-clipped Gs |
+| `1.3S` | 1–3 soft-clipped bases (any sequence) |
+| `S` | Any soft-clipped 5′ end |
+| `Mg` | Any mapped 5′ end starting with G |
+| `2.3MA` | 2–3 matched bases starting with A |
+| `M` | Any mapped 5′ end |
 
 ## Examples
-**1. Single-end CAGE ([Murata *et al.*, 2014](https://link.springer.com/protocol/10.1007/978-1-4939-0805-9_7)).** Select alignments that have an exact 1-bp soft-clip at the 5′-end with prefix G.
+
+**1. Single-end CAGE ([Murata *et al.*, 2014](https://link.springer.com/protocol/10.1007/978-1-4939-0805-9_7)).** Select alignments with exactly 1 soft-clipped G at the 5′ end.
+
 ```bash
-pyselectal.py \
-    -n 1 -m 1 \
-    -x G \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 1Sg -o out.bam
 ```
 
-**2. CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments such that R1 has an exact 3-bp soft-clip at the 5′-end with prefix GGG, and include the corresponding R2 mates.
+**2. CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments where R1 has exactly 3 soft-clipped Gs at the 5′ end; include matching R2 mates.
+
 ```bash
-pyselectal.py \
-    -n 3 -m 3 \
-    -x GGG \
-    --paired \
-    --sort \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 3Sggg --paired --name -o out.bam
 ```
 
-**3. Paired-end CAGEscan.** Select paired-end alignments such that R1 has a 5′ soft-clip of length 1–3 bp of a G homopolymer, and include the corresponding R2 mates.
+**3. Paired-end CAGEscan.** Select paired-end alignments where R1 has 1–3 soft-clipped Gs at the 5′ end.
+
 ```bash
-pyselectal.py \
-    -n 1 -m 3 \
-    -x G \
-    --paired \
-    --sort \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 1.3Sg --paired --name -o out.bam
 ```
 
+**4. Single-end CAGE.** Select alignments with exactly 1 soft-clipped A at the 5′ end (may correspond to the canonical m7G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335))).
 
-**4. Single-end CAGE.** Select alignments that have an exact 1-bp soft-clip at the 5′-end with a prefix A that may occasionally correspond to the canonical m<sup>7</sup>G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335)).
 ```bash
-pyselectal.py \
-    -n 1 -m 1 \
-    -x A \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 1Sa -o out.bam
 ```
 
-**5. Single-end.** Select alignments that have a mapped 5′-end with prefix GG.
+**5. Single-end.** Select alignments with a mapped 5′ end starting with GG.
+
 ```bash
-pyselectal.py \
-    -n 0 -m 0 \
-    -x GG \
-    in.bam out.bam
+pyselectal.py -i in.bam --select Mgg -o out.bam
 ```
 
-**6. Single-end.** Select alignments that have at least 10 aligned bases at the 5′-end, without applying any sequence constraint.
+**6. Single-end.** Select alignments with at least 10 matched bases at the 5′ end, without sequence constraint.
+
 ```bash
-pyselectal.py \
-    -n 0 -m 0 \
-    -k 10 \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 10.M -o out.bam
 ```
 
-**7. Single-end.** Select alignments that have a 5′ soft-clip of length 2–5 bp composed of a G homopolymer.
+**7. Single-end.** Select alignments with 2–5 soft-clipped Gs at the 5′ end.
+
 ```bash
-pyselectal.py \
-    -n 2 -m 5 \
-    -x G \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 2.5Sg -o out.bam
 ```
 
-**8. Single-end.** Select alignments that have the specified prefix at the 5′-end and at least 20 aligned bases at the 5′-end.
+**8. Merge multiple specs.** Select alignments matching either `1Sg` or `2Sgg` and write all to one file.
+
 ```bash
-pyselectal.py \
-    -n 0 -m 0 \
-    -x ATGC \
-    -k 20 \
-    in.bam out.bam
+pyselectal.py -i in.bam --select 1Sg,2Sgg --merge -o out.bam
 ```
 
-**9. Single-end.** Select alignments that have the specified prefix at the 5′ end; the -k parameter is ignored because k is shorter than the prefix length.
+**9. Count 5′-end types.** Output a TSV histogram of all 5′-end types.
+
 ```bash
-pyselectal.py \
-    -n 0 -m 0 \
-    -x ATGC \
-    -k 3 \
-    in.bam out.bam
+pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-**10. Paired-end.** Select paired-end alignments such that R1 has an exact 1-bp soft-clip at the 5′ end with prefix G, and include the corresponding R2 mates.
+**10. Split by type.** Write each alignment to a separate file by 5′-end type, placed in `out_dir/`.
+
 ```bash
-pyselectal.py \
-    -n 1 -m 1 \
-    -x G \
-    --paired \
-    --sort \
-    in.bam out.bam
+pyselectal.py -i in.bam --all -o out_dir/
+```
+
+**11. Split by type with rare-type collapsing.** As above, but types accounting for less than 5% of reads are written to `out_dir/in_other.bam` instead of individual files.
+
+```bash
+pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
+```
+
+**12. CRAM from stdin.** Pipe a CRAM stream into `pyselectal` with a reference.
+
+```bash
+cat in.cram | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
 ```
 
 ## Test data
@@ -255,11 +241,13 @@ Single-end test BAM containing a curated set of alignments with diverse 5′-end
 ### `test_softclip_pe.bam`
 
 Paired-end test BAM designed specifically for paired-end mode (`--paired`):
+
 - Alignments are grouped by query name, representing paired-end fragments
 - For each fragment, selection criteria are evaluated exclusively on read1 (R1)
 - Corresponding read2 (R2) alignments are fully mapped and included only if their R1 counterpart satisfies the selection criteria
 
 The file includes explicit paired-end scenarios such as:
+
 - Fragments where R1 has an exact 5′ soft-clip
 - Fragments where R1 has a 5′ soft-clip within a specified length range
 - Fragments where R1 has a mapped 5′ end matching a given prefix
@@ -267,23 +255,22 @@ The file includes explicit paired-end scenarios such as:
 - Fragments where a selected R1 alignment is associated with more than one valid R2 alignment, testing correct mate inclusion
 
 Test BAMs are deliberately small and can be manually inspected with:
+
 ```bash
 samtools view testdata/test_softclip_se.bam
 samtools view testdata/test_softclip_pe.bam
 ```
 
-We also provide test data to help users verify the installation and functionality of the pipeline. The repository includes three small FASTQ files that can be used to test the mapping step and the overall workflow of the script, including the filtering of the resulting BAM file. The subset data are derived from the human LUHMES cell line at 1, 3, and 6 days of neuronal differentiation ([Yoshihara *et al.*, 2025](https://link.springer.com/article/10.1038/s44319-025-00372-1)).
+You can also verify the full mapping-to-filtering workflow using your own data. For example, piping STAR output directly into `pyselectal`:
 
-Example usage:
 ```bash
 STAR \
   --runThreadN 20 \
   --genomeDir star_index \
-  --readFilesIn testdata/luhmesDay1Rep1_NETCAGE_subsample_L001_R1_001.fastq.gz \
+  --readFilesIn reads_R1.fastq.gz \
   --outSAMtype BAM Unsorted \
   --readFilesCommand gunzip -c \
   --alignEndsType Local \
   --outSAMunmapped Within | \
-    pyselectal.py [options] - \
-    luhmesDay1Rep1_NETCAGE_subsample_filtered_L001_R1_001.fastq.gz
+    pyselectal.py -i - --select 1Sg -o filtered.bam
 ```
