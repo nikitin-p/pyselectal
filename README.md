@@ -85,9 +85,9 @@ Modes are mutually exclusive, and exactly one is required:
 
 `-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
 
-`-c, --count` - Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows are sorted by descending count. Categories strictly below `--collapse-threshold` are summed up into the `other` category. The output histogram goes to `stdout` in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
+`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows are sorted by descending count. Categories strictly below `--collapse-threshold` are summed up into the `other` category. The output histogram goes to `stdout` in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
-`-a, --all` - Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
 
 ### Spec grammar
 
