@@ -8,7 +8,9 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Options](#options)
+- [Input](#input)
+- [Modes](#modes)
+- [Optional arguments](#optional-arguments)
 - [Examples](#examples)
 - [Test data](#test-data)
 
@@ -51,7 +53,7 @@ Then, you can run it directly:
 
 ## Usage
 
-`pyselectal` takes one or more alignment files (in the BAM, SAM or CRAM format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
+`pyselectal` takes one or more alignment files (in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
 
 ```bash
 pyselectal.py -i FILE[,FILE,...] <mode> [optional arguments]
@@ -83,9 +85,9 @@ Modes are mutually exclusive, and exactly one is required:
 
 `-s, --select SPEC[,SPEC,...]` Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
 
-`-c, --count` Scan all alignments and writes a TSV histogram of 5′-end types. Columns: `type`, `count`. Rows are sorted by descending count; categories strictly below `--collapse-threshold`% are folded into an `other` row. Output goes to `stdout` for a single input, or `{stem}_5prime_counts.tsv` for multiple inputs.
+`-c, --count` Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows are sorted by descending count. Categories strictly below `--collapse-threshold` are summed up into the `other` category. The output histogram goes to `stdout` in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
-`-a, --all` Write each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file instead of individual per-type files.
+`-a, --all` Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
 
 ### Spec grammar
 
