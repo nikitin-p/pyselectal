@@ -1,6 +1,6 @@
 # pyselectal
 
-Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of the 5′-end soft-clipped or mapped sequence. It supports single-end and paired-end reads. It is designed to be easily integrated into NGS pipelines.
+Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of soft-clipped or mapped 5′-end of reads. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
 
 ## Contents
 
@@ -14,23 +14,22 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 
 ## Concept and motivation
 
-This tool is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded base `G` added by the reverse transcriptase during template switching.
+Pyselectal is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded base `G` added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the 5′ alignment structure is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While agnostic of a sequencing method, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
 
 ## Requirements
 
 ### Python
 
-- **Python ≥ v3.6**
-  - Required due to the use of f-strings.
-  - **Python ≥ v3.8** is recommended ([for the best compatibility with modern `pysam`](https://pysam.readthedocs.io/en/latest/release.html)).
+- **Python ≥ v3.8** is recommended ([for the best compatibility with modern `pysam`](https://pysam.readthedocs.io/en/latest/release.html)).
+  - **Python ≥ v3.6** is required due to the use of [f-strings](https://peps.python.org/pep-0498/) in the `pyselectal` implementation.
 
 ### Python libraries
 
 - **pysam ≥ 0.15.0**
 
-`pysam 0.15.0` is the earliest version that supports the `threads` argument in `pysam.AlignmentFile`, which is used for parallel BGZF compression/decompression. You can install `pysam` using the following command:
+`pysam 0.15.0` is the earliest version that supports the `threads` argument in `pysam.AlignmentFile` which is used for parallel BGZF compression/decompression. You can install `pysam` using `pip`:
 
 ```bash
 pip install pysam
@@ -38,7 +37,7 @@ pip install pysam
 
 ## Installation
 
-Clone the repository and make the script executable:
+Clone the repository and make the `pyselectal.py` script executable:
 
 ```bash
 git clone https://github.com/nikitin-p/pyselectal.git
@@ -46,16 +45,16 @@ cd pyselectal
 chmod +x pyselectal.py
 ```
 
-You can then run it directly:
+Then, you can run it directly:
 
 `pyselectal.py --help`
 
 ## Usage
 
-`pyselectal` takes one or more alignment files (BAM, SAM, or CRAM) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
+`pyselectal` takes one or more alignment files (in the BAM, SAM or CRAM format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
 
 ```bash
-pyselectal.py -i FILE[,FILE,...] <mode> [options]
+pyselectal.py -i FILE[,FILE,...] <mode> [optional arguments]
 ```
 
 Exactly one mode must be specified: `--select`, `--count`, or `--all`.
@@ -66,58 +65,27 @@ You can also use `pyselectal` with a pipe:
 
 ```bash
 tool_1 | \
-  pyselectal.py -i - <mode> [options] | \
+  pyselectal.py -i - <mode> [optional arguments] | \
   tool_2 > output.file
 ```
 
-A dash (`-`) as the input reads from `stdin` (BAM, SAM, or CRAM auto-detected by magic bytes; CRAM requires `-r`). When a single input and a single `--select` spec are given without `-o`, output goes to `stdout`.
+The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes; CRAM requires `-r`, see below). When a single input and a single `--select` spec are given without `-o` (see below), output goes to `stdout`.
 
-## Options
+## Input
 
-```text
-Modes (mutually exclusive, exactly one required):
-  -s, --select SPEC[,SPEC,...]   Select alignments by 5′ end type
-  -c, --count                    Output TSV histogram of 5′ end types
-  -a, --all                      Split alignments into per-type files
-```
+`-i, --input FILE[,FILE,...]` — Input alignment file(s). The format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. Required.
 
-`-i, --input FILE[,FILE,...]` — Input file(s). Format auto-detected from extension (`.bam`, `.sam`, `.cram`). Use `-` for `stdin`. Required.
+## Modes
 
-`-o, --output PATH` — Output file path (for `--select`) or directory (for `--all`). Overrides automatic naming.
+### Definitions
 
-`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
+Modes are mutually exclusive, and exactly one is required:
 
-`-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
+`-s, --select SPEC[,SPEC,...]` Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
 
-`-t, --threads N` — BGZF compression/decompression threads (default: 1).
+`-c, --count` Scan all alignments and writes a TSV histogram of 5′-end types. Columns: `type`, `count`. Rows are sorted by descending count; categories strictly below `--collapse-threshold`% are folded into an `other` row. Output goes to `stdout` for a single input, or `{stem}_5prime_counts.tsv` for multiple inputs.
 
-`-p, --paired` — Paired-end mode: selection is applied to R1; matching R2 mates are included automatically.
-
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
-
-`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
-
-`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
-
-`--collapse-threshold PCT` — Collapse 5′-end type categories strictly below PCT% of total into an `other` row (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
-
-`-h, --help` — Display a full manual and exit.
-
-`-v, --version` — Print the program version and exit.
-
-### Modes of operation
-
-#### `--select SPEC[,SPEC,...]`
-
-Filters alignments whose 5′ end matches one or more specs (see [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
-
-#### `--count`
-
-Scans all alignments and writes a TSV histogram of 5′-end types. Columns: `type`, `count`. Rows are sorted by descending count; categories strictly below `--collapse-threshold`% are folded into an `other` row. Output goes to `stdout` for a single input, or `{stem}_5prime_counts.tsv` for multiple inputs.
-
-#### `--all`
-
-Writes each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file instead of individual per-type files.
+`-a, --all` Write each alignment to a separate file named by its 5′-end type (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside that directory. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file instead of individual per-type files.
 
 ### Spec grammar
 
@@ -147,6 +115,30 @@ Examples:
 | `Mg` | Any mapped 5′ end starting with G |
 | `2.3MA` | 2–3 matched bases starting with A |
 | `M` | Any mapped 5′ end |
+
+## Optional arguments
+
+`-o, --output PATH` — Output file path (for `--select`) or directory (for `--all`). Overrides automatic naming.
+
+`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
+
+`-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
+
+`-t, --threads N` — BGZF compression/decompression threads (default: 1).
+
+`-p, --paired` — Paired-end mode: selection is applied to R1; matching R2 mates are included automatically.
+
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
+
+`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
+
+`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
+
+`--collapse-threshold PCT` — Collapse 5′-end type categories strictly below PCT% of total into an `other` row (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
+
+`-h, --help` — Display a full manual and exit.
+
+`-v, --version` — Print the program version and exit.
 
 ## Examples
 
