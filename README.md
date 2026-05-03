@@ -53,15 +53,13 @@ Then, you can run it directly:
 
 ## Usage
 
-`pyselectal` takes one or more alignment files (in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. The 3′-end mapping pattern is ignored. Unmapped reads are never selected.
+`pyselectal` takes as input one or more alignment files (in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`.
 
 ```bash
 pyselectal.py -i FILE[,FILE,...] <mode> [optional arguments]
 ```
 
-Exactly one mode must be specified: `--select`, `--count`, or `--all`.
-
-For paired-end input, reads must be name-sorted; use `--name` to sort internally if needed.
+Input is indicated by the mandatory `-i` option and consists of one alignment file or several files separated by commas. `<mode>` is also mandatory and specifies the mode of action (`--select`, `--count`, or `--all`; see below). Exactly one mode must be set. Additionally, you can provide optional arguments, including the name of the output file or directory. See the description of optional arguments below.
 
 You can also use `pyselectal` with a pipe:
 
@@ -73,19 +71,25 @@ tool_1 | \
 
 The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes; CRAM requires `-r`, see below). When a single input and a single `--select` spec are given without `-o` (see below), output goes to `stdout`.
 
+### Important notes
+
+1. The 3′-end mapping pattern is ignored.
+2. Unmapped reads are never selected.
+3. For paired-end input, reads must be name-sorted; use `--name` to sort internally if needed.
+
 ## Input
 
-`-i, --input FILE[,FILE,...]` — Input alignment file(s). The format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. Required.
+`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. At least one input file is required.
 
 ## Modes
 
 ### Definitions
 
-Modes are mutually exclusive, and exactly one is required:
+Modes are mutually exclusive, and setting exactly one is required:
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`).
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`); see [Optional arguments](#optional-arguments) below.
 
-`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows are sorted by descending count. Categories strictly below `--collapse-threshold` are summed up into the `other` category. The output histogram goes to `stdout` in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
+`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into an `other` type. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
 `-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
 
