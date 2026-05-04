@@ -95,7 +95,7 @@ Modes are mutually exclusive, and setting exactly one is required:
 
 ### Spec grammar
 
-A spec describes a 5′-end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
+A spec describes a 5′ end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 
 | Part | Meaning |
 | --- | --- |
@@ -106,7 +106,7 @@ A spec describes a 5′-end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 | `n.m` | Between n and m bases (inclusive) |
 | `n.` | At least n bases |
 | `.m` | At most m bases |
-| `seq` | Required sequence at the 5′ end of the read |
+| `seq` | Sequence required at the 5′ end of the read |
 
 Reverse-strand reads are handled automatically (sequence is reverse-complemented before matching).
 
