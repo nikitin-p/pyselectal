@@ -148,73 +148,61 @@ Examples:
 
 ## Examples
 
-**1. Single-end CAGE ([Murata *et al.*, 2014](https://link.springer.com/protocol/10.1007/978-1-4939-0805-9_7)).** Select alignments with exactly 1 soft-clipped G at the 5′ end.
+1. Select paired-end alignments where R1 has exactly 1 soft-clipped G at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
 
 ```bash
-pyselectal.py -i in.bam --select 1Sg -o out.bam
+pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
 ```
 
-**2. CAGEscan ([Bertin *et al.*, 2011](https://onlinelibrary.wiley.com/doi/abs/10.1002/9783527644582.ch3)).** Select paired-end alignments where R1 has exactly 3 soft-clipped Gs at the 5′ end; include matching R2 mates.
+2. Select single-end alignments with 1-3 soft-clipped Gs at the 5′ end:
 
 ```bash
-pyselectal.py -i in.bam --select 3Sggg --paired --name -o out.bam
+pyselectal.py -i in.bam --select 1.3Sg -o out.bam
 ```
 
-**3. Paired-end CAGEscan.** Select paired-end alignments where R1 has 1–3 soft-clipped Gs at the 5′ end.
+3. Select single-end alignments with exactly 1 soft-clipped A, C, or T at the 5' end, or with a soft-clipped GG at the 5′ end, or with a mapped 5' end, and put the selected alignments in the respective output BAM files (one per 5' end type):
 
 ```bash
-pyselectal.py -i in.bam --select 1.3Sg --paired --name -o out.bam
+pyselectal.py -i in.bam --select 1Sa,1Sc,1St,2Sgg,M
 ```
 
-**4. Single-end CAGE.** Select alignments with exactly 1 soft-clipped A at the 5′ end (may correspond to the canonical m7G cap ([Ohtake *et al.*, 2004](https://academic.oup.com/dnaresearch/article/11/4/305/336335))).
-
-```bash
-pyselectal.py -i in.bam --select 1Sa -o out.bam
-```
-
-**5. Single-end.** Select alignments with a mapped 5′ end starting with GG.
-
-```bash
-pyselectal.py -i in.bam --select Mgg -o out.bam
-```
-
-**6. Single-end.** Select alignments with at least 10 matched bases at the 5′ end, without sequence constraint.
-
-```bash
-pyselectal.py -i in.bam --select 10.M -o out.bam
-```
-
-**7. Single-end.** Select alignments with 2–5 soft-clipped Gs at the 5′ end.
-
-```bash
-pyselectal.py -i in.bam --select 2.5Sg -o out.bam
-```
-
-**8. Merge multiple specs.** Select alignments matching either `1Sg` or `2Sgg` and write all to one file.
+4. Select single-end alignments with either one or two G bases soft-clipped at the 5' end and write all selected alignments into one output file:
 
 ```bash
 pyselectal.py -i in.bam --select 1Sg,2Sgg --merge -o out.bam
 ```
 
-**9. Count 5′-end types.** Output a TSV histogram of all 5′-end types.
+5. Select single-end alignments with a mapped 5′ end starting with GG:
+
+```bash
+pyselectal.py -i in.bam --select Mgg -o out.bam
+```
+
+6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint:
+
+```bash
+pyselectal.py -i in.bam --select 10.M -o out.bam
+```
+
+7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram:
 
 ```bash
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-**10. Split by type.** Write each alignment to a separate file by 5′-end type, placed in `out_dir/`.
+8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-**11. Split by type with rare-type collapsing.** As above, but types accounting for less than 5% of reads are written to `out_dir/in_other.bam` instead of individual files.
+9. As above, but 5' end types accounting for less than 5% of reads are written to `out_dir/in_other.bam`, instead of individual files.
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
 ```
 
-**12. CRAM from stdin.** Pipe a CRAM stream into `pyselectal` with a reference.
+12. Pipe a CRAM stream into `pyselectal`:
 
 ```bash
 cat in.cram | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
