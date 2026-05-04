@@ -9,6 +9,7 @@ from unittest import mock
 from pyselectal import (
     parse_args, parse_spec, spec_matches_aln, classify_5prime_type, write_count_tsv,
     main, VERSION, _detect_format, _spool_and_detect_stdin,
+    has_5prime_softclip_range, has_5prime_mapped_range,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -277,12 +278,12 @@ class TestParseSpec:
         assert s["seq"] is None
 
     def test_mapped_with_prefix(self):
-        """2Mg -> exactly 2bp match starting with G."""
+        """2Mg -> exactly 2 matched Gs (homopolymer expansion)."""
         s = parse_spec("2Mg")
         assert s["type"] == "M"
         assert s["n"] == 2
         assert s["m"] == 2
-        assert s["seq"] == "G"
+        assert s["seq"] == "GG"  # expanded from single G
 
     def test_mapped_range(self):
         """2.5M -> mapped with 2-5bp match."""
@@ -361,6 +362,49 @@ class TestParseSpec:
         with pytest.raises(SystemExit):
             parse_spec("2Sggg")
 
+    def test_exact_mapped_wrong_seq_length(self):
+        """Exact mapped: multi-char seq must have length == n."""
+        with pytest.raises(SystemExit):
+            parse_spec("3Mgg")
+
+    # --- Homopolymer specs ---
+
+    def test_range_softclip_homopolymer_flag(self):
+        """Range softclip with single base sets homopolymer=True."""
+        s = parse_spec("3.Sg")
+        assert s["type"] == "S"
+        assert s["n"] == 3
+        assert s["m"] is None
+        assert s["seq"] == "G"
+        assert s["homopolymer"] is True
+
+    def test_range_softclip_multi_char_not_homopolymer(self):
+        """Range softclip with multi-char seq is prefix match, not homopolymer."""
+        s = parse_spec("3.Sgg")
+        assert s["seq"] == "GG"
+        assert s["homopolymer"] is False
+
+    def test_range_mapped_homopolymer_flag(self):
+        """Range mapped with single base sets homopolymer=True."""
+        s = parse_spec("3.Mg")
+        assert s["type"] == "M"
+        assert s["n"] == 3
+        assert s["m"] is None
+        assert s["seq"] == "G"
+        assert s["homopolymer"] is True
+
+    def test_exact_softclip_not_homopolymer_flag(self):
+        """Exact softclip (n==m) has homopolymer=False (uses expanded seq)."""
+        s = parse_spec("3Sg")
+        assert s["seq"] == "GGG"  # expanded
+        assert s["homopolymer"] is False
+
+    def test_exact_mapped_not_homopolymer_flag(self):
+        """Exact mapped (n==m) has homopolymer=False (uses expanded seq)."""
+        s = parse_spec("3Mg")
+        assert s["seq"] == "GGG"  # expanded
+        assert s["homopolymer"] is False
+
 
 # ---------------------------------------------------------------------------
 # Step 2: spec_matches_aln on real BAM data
@@ -429,6 +473,84 @@ class TestSpecMatchesSE:
         names_flags = {(n, f) for n, f in hits}
         assert ("READ3", 0) in names_flags
         assert ("READ2", 272) in names_flags
+
+
+class TestHomopolymerMatching:
+    """Test homopolymer matching for range specs."""
+
+    def test_range_softclip_homopolymer_accepts_pure(self):
+        """3.Sg accepts 3+ pure G soft-clips."""
+        hits = _matching_reads(SE_BAM, "3.Sg")
+        names = [n for n, f in hits]
+        assert "READ3" in names  # 3Sggg
+        assert "READ5" in names  # 4Sgggg
+        # Should not match 1S or 2S reads
+        assert ("READ1", 0) not in hits  # 1Sg
+
+    def test_range_softclip_homopolymer_rejects_mixed(self):
+        """Homopolymer mode rejects non-homopolymer soft-clips."""
+        # Use has_5prime_softclip_range directly with a mock alignment
+        class MockAln:
+            is_unmapped = False
+            is_reverse = False
+            query_sequence = "GGAT" + "A" * 72  # 4-bp soft-clip but not all G
+
+        # Mock get_5prime_cigar to return (SOFT, 4)
+        from pyselectal import SOFT
+        import pyselectal
+        original_get = pyselectal.get_5prime_cigar
+        pyselectal.get_5prime_cigar = lambda aln: (SOFT, 4)
+        try:
+            # Prefix mode (homopolymer=False) should match (starts with G)
+            assert has_5prime_softclip_range(MockAln(), 3, None, "G", "C", homopolymer=False)
+            # Homopolymer mode should reject (not all G)
+            assert not has_5prime_softclip_range(MockAln(), 3, None, "G", "C", homopolymer=True)
+        finally:
+            pyselectal.get_5prime_cigar = original_get
+
+    def test_range_mapped_homopolymer_rejects_mixed(self):
+        """Homopolymer mode rejects non-homopolymer matched bases."""
+        class MockAln:
+            is_unmapped = False
+            is_reverse = False
+            query_sequence = "GGAT" + "A" * 72  # 4-bp match but not all G
+
+        from pyselectal import MATCH
+        import pyselectal
+        original_get = pyselectal.get_5prime_cigar
+        pyselectal.get_5prime_cigar = lambda aln: (MATCH, 4)
+        try:
+            # Prefix mode should match (starts with G)
+            assert has_5prime_mapped_range(MockAln(), 3, None, "G", "C", homopolymer=False)
+            # Homopolymer mode should reject (not all G)
+            assert not has_5prime_mapped_range(MockAln(), 3, None, "G", "C", homopolymer=True)
+        finally:
+            pyselectal.get_5prime_cigar = original_get
+
+    def test_spec_matches_range_softclip_homopolymer(self):
+        """spec_matches_aln uses homopolymer mode for range specs."""
+        class MockAln:
+            is_unmapped = False
+            is_reverse = False
+            query_sequence = "GGAT" + "A" * 72
+
+        from pyselectal import SOFT
+        import pyselectal
+        original_get = pyselectal.get_5prime_cigar
+        pyselectal.get_5prime_cigar = lambda aln: (SOFT, 4)
+        try:
+            spec = parse_spec("3.Sg")
+            assert spec["homopolymer"] is True
+            # Should reject mixed sequence
+            assert not spec_matches_aln(MockAln(), spec)
+
+            # Multi-char seq should use prefix mode
+            spec2 = parse_spec("3.Sgg")
+            assert spec2["homopolymer"] is False
+            # Should accept (starts with GG)
+            assert spec_matches_aln(MockAln(), spec2)
+        finally:
+            pyselectal.get_5prime_cigar = original_get
 
 
 # ---------------------------------------------------------------------------

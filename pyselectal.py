@@ -306,7 +306,7 @@ def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
         return seq[-n:].upper() == rc_prefix.upper()
     return seq[:n].upper() == prefix.upper()
 
-def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None):
+def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False):
     """
     Range mode: n <= length <= m (m=None means unbounded).
 
@@ -314,9 +314,8 @@ def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None):
             x >= n
             and (if m is not None) x <= m
       - if seq is None: only length is checked;
-      - if seq is provided: soft-clip must start with seq (prefix match)
-          forward: starts with seq
-          reverse: starts with rc_seq (revcomp of seq)
+      - if homopolymer=True and seq is single base: all soft-clipped bases must equal seq
+      - otherwise if seq is provided: soft-clip must start with seq (prefix match)
     """
     if aln.is_unmapped:
         return False
@@ -346,7 +345,55 @@ def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None):
         sc = query[:x]
         target = seq.upper()
 
-    return sc.upper().startswith(target)
+    sc_upper = sc.upper()
+    if homopolymer:
+        return all(b == target for b in sc_upper)
+    return sc_upper.startswith(target)
+
+
+def has_5prime_mapped_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False):
+    """
+    Range mode for mapped 5' ends: n <= length <= m (m=None means unbounded).
+
+      - require a 5' MATCH of length x where:
+            x >= n
+            and (if m is not None) x <= m
+      - if seq is None: only length is checked;
+      - if homopolymer=True and seq is single base: all matched bases must equal seq
+      - otherwise if seq is provided: 5' end must start with seq (prefix match)
+    """
+    if aln.is_unmapped:
+        return False
+
+    op_5p, len_5p = get_5prime_cigar(aln)
+
+    if op_5p != MATCH:
+        return False
+
+    x = int(len_5p)
+    if x < n:
+        return False
+    if m is not None and x > m:
+        return False
+
+    if not seq:
+        return True
+
+    query = aln.query_sequence
+    if not query:
+        return False
+
+    if aln.is_reverse:
+        matched = query[-x:]
+        target = rc_seq.upper()
+    else:
+        matched = query[:x]
+        target = seq.upper()
+
+    matched_upper = matched.upper()
+    if homopolymer:
+        return all(b == target for b in matched_upper)
+    return matched_upper.startswith(target)
 
 
 def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
@@ -405,6 +452,7 @@ def parse_spec(spec_str):
         n_val = None
         m_val = None
 
+    homopolymer = False
     if mode == "S":
         if n_val is None:
             # Bare "S[seq]": any softclip
@@ -418,13 +466,25 @@ def parse_spec(spec_str):
                 elif len(seq) != n_val:
                     die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
         else:
-            # Range softclip — seq is a prefix to match
-            pass
+            # Range softclip — single-base seq means homopolymer check
+            if seq is not None and len(seq) == 1:
+                homopolymer = True
     else:
         # M mode
         if n_val is None:
             n_val = 0
             m_val = None
+        if n_val == m_val and n_val > 0:
+            # Exact mapped — validate / expand seq
+            if seq is not None:
+                if len(seq) == 1:
+                    seq = seq * n_val  # expand homopolymer
+                elif len(seq) != n_val:
+                    die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
+        else:
+            # Range mapped — single-base seq means homopolymer check
+            if seq is not None and len(seq) == 1:
+                homopolymer = True
 
     # Normalized lowercase raw for file naming
     norm = raw.lower()
@@ -434,6 +494,7 @@ def parse_spec(spec_str):
         "n": n_val,
         "m": m_val,
         "seq": seq,
+        "homopolymer": homopolymer,
         "raw": norm,
     }
 
@@ -451,22 +512,21 @@ def spec_matches_aln(aln, spec):
             rc_prefix = revcomp(prefix) if prefix else None
             return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
         else:
-            # Range softclip — seq is prefix to match
+            # Range softclip — seq is prefix to match (or homopolymer if single base)
             rc_seq = revcomp(seq) if seq else None
-            return has_5prime_softclip_range(aln, n, m, seq, rc_seq)
+            return has_5prime_softclip_range(aln, n, m, seq, rc_seq, spec.get("homopolymer", False))
     else:
         # M mode
-        prefix = spec["seq"]
-        rc_prefix = revcomp(prefix) if prefix else None
-        k = spec["n"]
-        if not has_5prime_mapped_exact(aln, prefix, rc_prefix, k):
-            return False
-        # Enforce max match length if specified
-        if spec["m"] is not None:
-            op, length = get_5prime_cigar(aln)
-            if op == MATCH and length > spec["m"]:
-                return False
-        return True
+        n, m, seq = spec["n"], spec["m"], spec["seq"]
+        if m is not None and n == m and n > 0:
+            # Exact mapped
+            prefix = seq
+            rc_prefix = revcomp(prefix) if prefix else None
+            return has_5prime_mapped_exact(aln, prefix, rc_prefix, n)
+        else:
+            # Range mapped — seq is prefix to match (or homopolymer if single base)
+            rc_seq = revcomp(seq) if seq else None
+            return has_5prime_mapped_range(aln, n, m, seq, rc_seq, spec.get("homopolymer", False))
 
 
 def process_group_pe(records, n, m, prefix, k, out_bam, warn_k_ignored=False):

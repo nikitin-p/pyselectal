@@ -106,7 +106,7 @@ A spec describes a 5′ end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 | `n.m` | Between n and m bases (inclusive) |
 | `n.` | At least n bases |
 | `.m` | At most m bases |
-| `seq` | Sequence required at the 5′ end of the read |
+| `seq` | Sequence at 5′ end: single base = homopolymer; multi-base = prefix |
 
 Reverse-strand reads are handled automatically (sequence is reverse-complemented before matching).
 
@@ -115,13 +115,16 @@ Examples:
 | Spec | Meaning |
 | --- | --- |
 | `1Sg` | Exactly 1 soft-clipped G |
-| `2.Sgg` | 2+ soft-clipped bases starting with GG |
+| `3Sg` | Exactly 3 soft-clipped Gs (equivalent to `3Sggg`) |
+| `3.Sg` | 3+ soft-clipped Gs (homopolymer — all bases must be G) |
+| `2.Sgg` | 2+ soft-clipped bases starting with GG (prefix match) |
 | `1.3S` | 1–3 soft-clipped bases (any sequence) |
 | `S` | Any soft-clipped 5′ end |
-| `2M` | Exactly 2 matched bases |
-| `2.M` | 2 or more matched bases |
+| `3Mg` | Exactly 3 matched Gs (equivalent to `3Mggg`) |
+| `3.Mg` | 3+ matched Gs (homopolymer) |
+| `2.3Ma` | 2–3 matched bases starting with A (prefix match) |
+| `2.M` | 2+ matched bases |
 | `Mg` | Any mapped 5′ end starting with G |
-| `2.3MA` | 2–3 matched bases starting with A |
 | `M` | Any mapped 5′ end |
 
 ## Optional arguments
