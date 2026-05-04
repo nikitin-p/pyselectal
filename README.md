@@ -1,6 +1,6 @@
 # pyselectal
 
-Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of soft-clipped or mapped 5′-end of reads. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
+Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
 
 ## Contents
 
@@ -74,8 +74,9 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 ### Important notes
 
 1. The 3′-end mapping pattern is ignored.
-2. Unmapped reads are never selected.
+2. Unmapped alignments are never selected.
 3. For paired-end input, reads must be name-sorted; use `--name` to sort internally if needed.
+4. Multi-mapped reads produce multiple alignments, each processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary) unless studying multi-mappers.
 
 ## Input
 
@@ -91,7 +92,7 @@ Modes are mutually exclusive, and setting exactly one is required:
 
 `-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into an `other` type. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
-`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
 
 ### Spec grammar
 
@@ -108,7 +109,7 @@ A spec describes a 5′ end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 | `.m` | At most m bases |
 | `seq` | Sequence at 5′ end: single base = homopolymer; multi-base = prefix |
 
-Reverse-strand reads are handled automatically (sequence is reverse-complemented before matching).
+Reverse-strand alignments are handled automatically (sequence is reverse-complemented before matching).
 
 Examples:
 
@@ -165,7 +166,7 @@ pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
 pyselectal.py -i in.bam --select 1.3Sg -o out.bam
 ```
 
-3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T` at the 5' end, or with a soft-clipped `GG` at the 5′ end, or with a mapped 5' end, and put the selected alignments in the respective output BAM files (one per 5' end type):
+3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T`, or exactly 2 soft-clipped `G`s, or with a mapped 5' end, at the 5′ end and put the selected alignments in the respective output BAM files (one per 5' end type):
 
 ```bash
 pyselectal.py -i in.bam --select 1Sa,1Sc,1St,2Sgg,M
@@ -189,19 +190,19 @@ pyselectal.py -i in.bam --select Mgg > out.bam
 pyselectal.py -i in.bam --select 10.M | samtools view -c
 ```
 
-7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram:
+7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
 
 ```bash
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`:
+8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other.bam`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-9. As above, but 5' end types accounting for less than 5% of reads are written to `out_dir/in_other.bam`, instead of individual files.
+9. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other.bam`, instead of individual files.
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
