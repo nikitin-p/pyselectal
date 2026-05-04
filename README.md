@@ -148,31 +148,31 @@ Examples:
 
 ## Examples
 
-1. Select paired-end alignments where R1 has exactly 1 soft-clipped G at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
+1. Select paired-end alignments where R1 has exactly 1 soft-clipped `G` at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
 
 ```bash
 pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
 ```
 
-2. Select single-end alignments with 1-3 soft-clipped Gs at the 5′ end:
+2. Select single-end alignments with 1-3 soft-clipped `G` at the 5′ end:
 
 ```bash
 pyselectal.py -i in.bam --select 1.3Sg -o out.bam
 ```
 
-3. Select single-end alignments with exactly 1 soft-clipped A, C, or T at the 5' end, or with a soft-clipped GG at the 5′ end, or with a mapped 5' end, and put the selected alignments in the respective output BAM files (one per 5' end type):
+3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T` at the 5' end, or with a soft-clipped `GG` at the 5′ end, or with a mapped 5' end, and put the selected alignments in the respective output BAM files (one per 5' end type):
 
 ```bash
 pyselectal.py -i in.bam --select 1Sa,1Sc,1St,2Sgg,M
 ```
 
-4. Select single-end alignments with either one or two G bases soft-clipped at the 5' end and write all selected alignments into one output file:
+4. Select single-end alignments with either one or two `G` bases soft-clipped at the 5' end and write all selected alignments into one output file:
 
 ```bash
 pyselectal.py -i in.bam --select 1Sg,2Sgg --merge -o out.bam
 ```
 
-5. Select single-end alignments with a mapped 5′ end starting with GG:
+5. Select single-end alignments with a mapped 5′ end starting with `GG`:
 
 ```bash
 pyselectal.py -i in.bam --select Mgg -o out.bam
@@ -202,7 +202,7 @@ pyselectal.py -i in.bam --all -o out_dir/
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
 ```
 
-12. Pipe a CRAM stream into `pyselectal`:
+10. Pipe a CRAM stream into `pyselectal`:
 
 ```bash
 cat in.cram | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
@@ -218,45 +218,24 @@ These files are intended for testing, debugging, and illustrating tool behaviour
 
 Single-end test BAM containing a curated set of alignments with diverse 5′-end configurations:
 
-- Alignments with exact 5′ soft-clips of varying lengths (`1S`, `2S`, `3S`, `4S`)
-- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**
-- Alignments on both plus and minus strands
-- Homopolymer soft-clips (`G` / `C`), suitable for testing range-based selection
-- Multiple alignments per query, to ensure selection depends only on CIGAR structure and sequence content, and not on mapping multiplicity
+- Alignments with **5′ soft-clips** of varying lengths (`1S`, `2S`, `3S`, `4S`).
+- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**.
+- Alignments on both plus and minus strands.
+- Homopolymer soft-clips (`G` or `C`), suitable for testing range-based selection.
+- Multiple alignments per query, to ensure selection depends only on CIGAR structure and sequence content, and not on mapping multiplicity.
 
 ### `test_softclip_pe.bam`
 
-Paired-end test BAM designed specifically for paired-end mode (`--paired`):
+Paired-end test BAM containing alignments grouped by query name and matching various conditions:
 
-- Alignments are grouped by query name, representing paired-end fragments
-- For each fragment, selection criteria are evaluated exclusively on read1 (R1)
-- Corresponding read2 (R2) alignments are fully mapped and included only if their R1 counterpart satisfies the selection criteria
+- R1 has a 5′ soft-clip.
+- R1 has a mapped 5′ end.
+- R1 has multiple alternative alignments.
+- R1 alignment is associated with more than one R2 alignment.
 
-The file includes explicit paired-end scenarios such as:
-
-- Fragments where R1 has an exact 5′ soft-clip
-- Fragments where R1 has a 5′ soft-clip within a specified length range
-- Fragments where R1 has a mapped 5′ end matching a given prefix
-- Fragments where R1 has multiple alternative alignments
-- Fragments where a selected R1 alignment is associated with more than one valid R2 alignment, testing correct mate inclusion
-
-Test BAMs are deliberately small and can be manually inspected with:
+Test BAM files are small and can be inspected manually with:
 
 ```bash
 samtools view testdata/test_softclip_se.bam
 samtools view testdata/test_softclip_pe.bam
-```
-
-You can also verify the full mapping-to-filtering workflow using your own data. For example, piping STAR output directly into `pyselectal`:
-
-```bash
-STAR \
-  --runThreadN 20 \
-  --genomeDir star_index \
-  --readFilesIn reads_R1.fastq.gz \
-  --outSAMtype BAM Unsorted \
-  --readFilesCommand gunzip -c \
-  --alignEndsType Local \
-  --outSAMunmapped Within | \
-    pyselectal.py -i - --select 1Sg -o filtered.bam
 ```
