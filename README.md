@@ -132,7 +132,7 @@ Examples:
 
 `-t, --threads N` — BGZF compression/decompression threads (default: 1).
 
-`-p, --paired` — Paired-end mode: selection is applied to R1; matching R2 mates are included automatically.
+`-p, --paired` — Paired-end mode: selection is applied to R1; R2 mates corresponding to selected R1 mates are included automatically if mapped.
 
 `-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
 
@@ -140,7 +140,7 @@ Examples:
 
 `--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
 
-`--collapse-threshold PCT` — Collapse 5′-end type categories strictly below PCT% of total into an `other` row (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
+`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into an `other` type (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
 
 `-h, --help` — Display a full manual and exit.
 
