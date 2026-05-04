@@ -91,7 +91,7 @@ Modes are mutually exclusive, and setting exactly one is required:
 
 `-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into an `other` type. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
-`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped reads are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
 
 ### Spec grammar
 
@@ -115,9 +115,11 @@ Examples:
 | Spec | Meaning |
 | --- | --- |
 | `1Sg` | Exactly 1 soft-clipped G |
-| `2.Sgg` | 2 or more soft-clipped Gs |
+| `2.Sgg` | 2+ soft-clipped bases starting with GG |
 | `1.3S` | 1–3 soft-clipped bases (any sequence) |
 | `S` | Any soft-clipped 5′ end |
+| `2M` | Exactly 2 matched bases |
+| `2.M` | 2 or more matched bases |
 | `Mg` | Any mapped 5′ end starting with G |
 | `2.3MA` | 2–3 matched bases starting with A |
 | `M` | Any mapped 5′ end |
@@ -154,7 +156,7 @@ Examples:
 pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
 ```
 
-2. Select single-end alignments with 1-3 soft-clipped `G` at the 5′ end:
+2. Select single-end alignments with 1–3 soft-clipped bases starting with `G` at the 5′ end:
 
 ```bash
 pyselectal.py -i in.bam --select 1.3Sg -o out.bam
@@ -172,16 +174,16 @@ pyselectal.py -i in.bam --select 1Sa,1Sc,1St,2Sgg,M
 pyselectal.py -i in.bam --select 1Sg,2Sgg --merge -o out.bam
 ```
 
-5. Select single-end alignments with a mapped 5′ end starting with `GG`:
+5. Select single-end alignments with a mapped 5′ end starting with `GG` (single input + single spec outputs to stdout):
 
 ```bash
-pyselectal.py -i in.bam --select Mgg -o out.bam
+pyselectal.py -i in.bam --select Mgg > out.bam
 ```
 
-6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint:
+6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint (stdout piped to another tool):
 
 ```bash
-pyselectal.py -i in.bam --select 10.M -o out.bam
+pyselectal.py -i in.bam --select 10.M | samtools view -c
 ```
 
 7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram:
@@ -202,10 +204,16 @@ pyselectal.py -i in.bam --all -o out_dir/
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
 ```
 
-10. Pipe a CRAM stream into `pyselectal`:
+10. Split multiple input files by 5' end type into a shared output directory; each input file generates its own set of type-specific files (e.g., `sample1_1sg.bam`, `sample2_1sg.bam`):
 
 ```bash
-cat in.cram | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
+pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
+```
+
+11. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
+
+```bash
+samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
 ```
 
 ## Test data

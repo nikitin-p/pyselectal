@@ -269,19 +269,19 @@ class TestParseSpec:
     # --- Mapped specs ---
 
     def test_mapped_exact(self):
-        """2M -> mapped with min 2bp match at 5' end."""
+        """2M -> mapped with exactly 2bp match at 5' end."""
         s = parse_spec("2M")
         assert s["type"] == "M"
         assert s["n"] == 2
-        assert s["m"] is None
+        assert s["m"] == 2
         assert s["seq"] is None
 
     def test_mapped_with_prefix(self):
-        """2Mg -> mapped 2bp match starting with G."""
+        """2Mg -> exactly 2bp match starting with G."""
         s = parse_spec("2Mg")
         assert s["type"] == "M"
         assert s["n"] == 2
-        assert s["m"] is None
+        assert s["m"] == 2
         assert s["seq"] == "G"
 
     def test_mapped_range(self):
@@ -349,9 +349,12 @@ class TestParseSpec:
             parse_spec("1SZ")
 
     def test_range_softclip_multi_char_seq(self):
-        """Range softclip seq must be 0 or 1 char."""
-        with pytest.raises(SystemExit):
-            parse_spec("1.3Sgg")
+        """Range softclip seq is allowed as prefix."""
+        r = parse_spec("1.3Sgg")
+        assert r["type"] == "S"
+        assert r["n"] == 1
+        assert r["m"] == 3
+        assert r["seq"] == "GG"
 
     def test_exact_softclip_wrong_seq_length(self):
         """Exact softclip: multi-char seq must have length == n."""

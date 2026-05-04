@@ -306,17 +306,17 @@ def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
         return seq[-n:].upper() == rc_prefix.upper()
     return seq[:n].upper() == prefix.upper()
 
-def has_5prime_softclip_range(aln, n, m, base=None, rc_base=None):
+def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None):
     """
-    Range mode: n < m:
+    Range mode: n <= length <= m (m=None means unbounded).
 
       - require a 5' soft-clip of length x where:
             x >= n
             and (if m is not None) x <= m
-      - if base is None: only length is used;
-      - if base is provided (single letter A/C/G/T/N):
-          forward: all soft-clipped bases == base
-          reverse: all soft-clipped bases == complement(base)
+      - if seq is None: only length is checked;
+      - if seq is provided: soft-clip must start with seq (prefix match)
+          forward: starts with seq
+          reverse: starts with rc_seq (revcomp of seq)
     """
     if aln.is_unmapped:
         return False
@@ -332,24 +332,21 @@ def has_5prime_softclip_range(aln, n, m, base=None, rc_base=None):
     if m is not None and x > m:
         return False
 
-    if not base:
+    if not seq:
         return True
 
-    seq = aln.query_sequence
-    if not seq:
+    query = aln.query_sequence
+    if not query:
         return False
 
     if aln.is_reverse:
-        sc = seq[-x:]
-        target = rc_base.upper()
+        sc = query[-x:]
+        target = rc_seq.upper()
     else:
-        sc = seq[:x]
-        target = base.upper()
+        sc = query[:x]
+        target = seq.upper()
 
-    for b in sc:
-        if b.upper() != target:
-            return False
-    return True
+    return sc.upper().startswith(target)
 
 
 def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
@@ -358,7 +355,7 @@ def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
 
       if n == m > 0 and m is not None,   then: exact soft-clip regime with optional sequence.
       if n == m == 0,                    then: mapped 5'-end regime with optional prefix.
-      if n < m (including m is None),    then: range soft-clip regime with optional homopolymer base.
+      if n < m (including m is None),    then: range soft-clip regime with optional prefix.
     """
     # mapped 5'-end regime
     if n == 0 and m == 0:
@@ -371,9 +368,8 @@ def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
         return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
 
     # range regime (includes unbounded top if m is None)
-    base = prefix.upper() if prefix else None
-    rc_base = comp_base(base) if base else None
-    return has_5prime_softclip_range(aln, n, m, base, rc_base)
+    rc_prefix = revcomp(prefix) if prefix else None
+    return has_5prime_softclip_range(aln, n, m, prefix, rc_prefix)
 
 
 def parse_spec(spec_str):
@@ -403,7 +399,7 @@ def parse_spec(spec_str):
         m_val = int(m_str) if m_str else None
     elif n_str is not None:
         n_val = int(n_str)
-        m_val = n_val if mode == "S" else None  # S: exact; M: at-least
+        m_val = n_val  # nS or nM without dot = exact
     else:
         # Bare S or M with no numbers
         n_val = None
@@ -422,9 +418,8 @@ def parse_spec(spec_str):
                 elif len(seq) != n_val:
                     die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
         else:
-            # Range softclip — seq must be 0 or 1 char
-            if seq is not None and len(seq) > 1:
-                die(f"Spec '{raw}': range softclip allows at most 1 base, got '{seq}'.")
+            # Range softclip — seq is a prefix to match
+            pass
     else:
         # M mode
         if n_val is None:
@@ -456,10 +451,9 @@ def spec_matches_aln(aln, spec):
             rc_prefix = revcomp(prefix) if prefix else None
             return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
         else:
-            # Range softclip — seq is single base for homopolymer check
-            base = seq[0].upper() if seq else None
-            rc_base = comp_base(base) if base else None
-            return has_5prime_softclip_range(aln, n, m, base, rc_base)
+            # Range softclip — seq is prefix to match
+            rc_seq = revcomp(seq) if seq else None
+            return has_5prime_softclip_range(aln, n, m, seq, rc_seq)
     else:
         # M mode
         prefix = spec["seq"]
