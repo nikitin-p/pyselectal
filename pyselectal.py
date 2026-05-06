@@ -432,7 +432,7 @@ def parse_spec(spec_str):
         die("Empty spec.")
     s = raw.upper()
 
-    pattern = r'^(\d+)?(\.(\d*))?([SM])([ACGT]*)$'
+    pattern = r'^(\d+)?(\.\.(\d*))?([SM])(.*)$'
     match = re.match(pattern, s)
     if not match:
         die(f"Invalid spec: '{raw}'")
@@ -452,39 +452,16 @@ def parse_spec(spec_str):
         n_val = None
         m_val = None
 
-    homopolymer = False
     if mode == "S":
         if n_val is None:
             # Bare "S[seq]": any softclip
             n_val = 1
             m_val = None
-        if n_val == m_val and n_val > 0:
-            # Exact softclip — validate / expand seq
-            if seq is not None:
-                if len(seq) == 1:
-                    seq = seq * n_val  # expand homopolymer
-                elif len(seq) != n_val:
-                    die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
-        else:
-            # Range softclip — single-base seq means homopolymer check
-            if seq is not None and len(seq) == 1:
-                homopolymer = True
     else:
         # M mode
         if n_val is None:
             n_val = 0
             m_val = None
-        if n_val == m_val and n_val > 0:
-            # Exact mapped — validate / expand seq
-            if seq is not None:
-                if len(seq) == 1:
-                    seq = seq * n_val  # expand homopolymer
-                elif len(seq) != n_val:
-                    die(f"Spec '{raw}': sequence length {len(seq)} != n={n_val}.")
-        else:
-            # Range mapped — single-base seq means homopolymer check
-            if seq is not None and len(seq) == 1:
-                homopolymer = True
 
     # Normalized lowercase raw for file naming
     norm = raw.lower()
@@ -494,7 +471,6 @@ def parse_spec(spec_str):
         "n": n_val,
         "m": m_val,
         "seq": seq,
-        "homopolymer": homopolymer,
         "raw": norm,
     }
 

@@ -188,7 +188,7 @@ class TestParseSpec:
     # --- Softclip specs ---
 
     def test_exact_softclip_with_single_base(self):
-        """1Sg -> exact 1bp softclip, seq expanded to 'G'."""
+        """1Sg -> exact 1bp softclip, seq is 'G' (no expansion in v3)."""
         s = parse_spec("1Sg")
         assert s["type"] == "S"
         assert s["n"] == 1
@@ -203,13 +203,13 @@ class TestParseSpec:
         assert s["m"] == 3
         assert s["seq"] == "AAC"
 
-    def test_exact_softclip_homopolymer_expand(self):
-        """2Sg -> exact 2bp softclip, seq expanded to 'GG'."""
+    def test_exact_softclip_single_base(self):
+        """2Sg -> exact 2bp softclip, seq is 'G' (no expansion in v3)."""
         s = parse_spec("2Sg")
         assert s["type"] == "S"
         assert s["n"] == 2
         assert s["m"] == 2
-        assert s["seq"] == "GG"
+        assert s["seq"] == "G"
 
     def test_exact_softclip_no_seq(self):
         """2S -> exact 2bp softclip, any sequence."""
@@ -219,33 +219,33 @@ class TestParseSpec:
         assert s["m"] == 2
         assert s["seq"] is None
 
-    def test_range_softclip(self):
-        """1.3S -> range 1-3bp softclip, any base."""
-        s = parse_spec("1.3S")
+    def test_range_softclip_double_dot(self):
+        """1..3S -> range 1-3bp softclip."""
+        s = parse_spec("1..3S")
         assert s["type"] == "S"
         assert s["n"] == 1
         assert s["m"] == 3
         assert s["seq"] is None
 
     def test_range_softclip_with_base(self):
-        """1.3Sg -> range 1-3bp softclip, G homopolymer."""
-        s = parse_spec("1.3Sg")
+        """1..3Sg -> range 1-3bp softclip, G homopolymer."""
+        s = parse_spec("1..3Sg")
         assert s["type"] == "S"
         assert s["n"] == 1
         assert s["m"] == 3
         assert s["seq"] == "G"
 
     def test_open_range_softclip(self):
-        """4.Sg -> 4+ bp softclip G."""
-        s = parse_spec("4.Sg")
+        """4..Sg -> 4+ bp softclip G."""
+        s = parse_spec("4..Sg")
         assert s["type"] == "S"
         assert s["n"] == 4
         assert s["m"] is None
         assert s["seq"] == "G"
 
     def test_zero_to_m_softclip(self):
-        """.5S -> 0-5bp softclip (but min 1 for S)."""
-        s = parse_spec(".5S")
+        """..5S -> 0-5bp softclip (but min 1 for S)."""
+        s = parse_spec("..5S")
         assert s["type"] == "S"
         assert s["n"] == 0
         assert s["m"] == 5
@@ -278,23 +278,23 @@ class TestParseSpec:
         assert s["seq"] is None
 
     def test_mapped_with_prefix(self):
-        """2Mg -> exactly 2 matched Gs (homopolymer expansion)."""
+        """2Mg -> exactly 2 matched bases, seq is 'G' (no expansion in v3)."""
         s = parse_spec("2Mg")
         assert s["type"] == "M"
         assert s["n"] == 2
         assert s["m"] == 2
-        assert s["seq"] == "GG"  # expanded from single G
+        assert s["seq"] == "G"
 
     def test_mapped_range(self):
-        """2.5M -> mapped with 2-5bp match."""
-        s = parse_spec("2.5M")
+        """2..5M -> mapped with 2-5bp match."""
+        s = parse_spec("2..5M")
         assert s["type"] == "M"
         assert s["n"] == 2
         assert s["m"] == 5
 
     def test_mapped_zero_to_m(self):
-        """.5M -> at most 5bp match."""
-        s = parse_spec(".5M")
+        """..5M -> at most 5bp match."""
+        s = parse_spec("..5M")
         assert s["type"] == "M"
         assert s["n"] == 0
         assert s["m"] == 5
@@ -332,8 +332,8 @@ class TestParseSpec:
         assert s["raw"] == "2sg"
 
     def test_raw_field_range(self):
-        s = parse_spec("1.3S")
-        assert s["raw"] == "1.3s"
+        s = parse_spec("1..3S")
+        assert s["raw"] == "1..3s"
 
     # --- Invalid specs ---
 
@@ -345,65 +345,14 @@ class TestParseSpec:
         with pytest.raises(SystemExit):
             parse_spec("123")
 
-    def test_invalid_base_char(self):
-        with pytest.raises(SystemExit):
-            parse_spec("1SZ")
-
     def test_range_softclip_multi_char_seq(self):
         """Range softclip seq is allowed as prefix."""
-        r = parse_spec("1.3Sgg")
+        r = parse_spec("1..3Sgg")
         assert r["type"] == "S"
         assert r["n"] == 1
         assert r["m"] == 3
         assert r["seq"] == "GG"
 
-    def test_exact_softclip_wrong_seq_length(self):
-        """Exact softclip: multi-char seq must have length == n."""
-        with pytest.raises(SystemExit):
-            parse_spec("2Sggg")
-
-    def test_exact_mapped_wrong_seq_length(self):
-        """Exact mapped: multi-char seq must have length == n."""
-        with pytest.raises(SystemExit):
-            parse_spec("3Mgg")
-
-    # --- Homopolymer specs ---
-
-    def test_range_softclip_homopolymer_flag(self):
-        """Range softclip with single base sets homopolymer=True."""
-        s = parse_spec("3.Sg")
-        assert s["type"] == "S"
-        assert s["n"] == 3
-        assert s["m"] is None
-        assert s["seq"] == "G"
-        assert s["homopolymer"] is True
-
-    def test_range_softclip_multi_char_not_homopolymer(self):
-        """Range softclip with multi-char seq is prefix match, not homopolymer."""
-        s = parse_spec("3.Sgg")
-        assert s["seq"] == "GG"
-        assert s["homopolymer"] is False
-
-    def test_range_mapped_homopolymer_flag(self):
-        """Range mapped with single base sets homopolymer=True."""
-        s = parse_spec("3.Mg")
-        assert s["type"] == "M"
-        assert s["n"] == 3
-        assert s["m"] is None
-        assert s["seq"] == "G"
-        assert s["homopolymer"] is True
-
-    def test_exact_softclip_not_homopolymer_flag(self):
-        """Exact softclip (n==m) has homopolymer=False (uses expanded seq)."""
-        s = parse_spec("3Sg")
-        assert s["seq"] == "GGG"  # expanded
-        assert s["homopolymer"] is False
-
-    def test_exact_mapped_not_homopolymer_flag(self):
-        """Exact mapped (n==m) has homopolymer=False (uses expanded seq)."""
-        s = parse_spec("3Mg")
-        assert s["seq"] == "GGG"  # expanded
-        assert s["homopolymer"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -453,16 +402,16 @@ class TestSpecMatchesSE:
         assert len(hits) == 10
 
     def test_range_1_3_selects_correct_reads(self):
-        """1.3S: softclip length 1-3 -> 8 reads (not 4S ones)."""
-        hits = _matching_reads(SE_BAM, "1.3S")
+        """1..3S: softclip length 1-3 -> 8 reads (not 4S ones)."""
+        hits = _matching_reads(SE_BAM, "1..3S")
         assert len(hits) == 8
         # 4S reads excluded
         for name, flag in hits:
             assert not (name == "READ5")
 
     def test_open_range_4_plus(self):
-        """4.S: softclip 4+ -> READ5(0) and READ5(2064)."""
-        hits = _matching_reads(SE_BAM, "4.S")
+        """4..S: softclip 4+ -> READ5(0) and READ5(2064)."""
+        hits = _matching_reads(SE_BAM, "4..S")
         assert len(hits) == 2
         assert all(n == "READ5" for n, _ in hits)
 
@@ -479,8 +428,8 @@ class TestHomopolymerMatching:
     """Test homopolymer matching for range specs."""
 
     def test_range_softclip_homopolymer_accepts_pure(self):
-        """3.Sg accepts 3+ pure G soft-clips."""
-        hits = _matching_reads(SE_BAM, "3.Sg")
+        """3..Sg accepts 3+ pure G soft-clips."""
+        hits = _matching_reads(SE_BAM, "3..Sg")
         names = [n for n, f in hits]
         assert "READ3" in names  # 3Sggg
         assert "READ5" in names  # 4Sgggg
@@ -539,13 +488,13 @@ class TestHomopolymerMatching:
         original_get = pyselectal.get_5prime_cigar
         pyselectal.get_5prime_cigar = lambda aln: (SOFT, 4)
         try:
-            spec = parse_spec("3.Sg")
+            spec = parse_spec("3..Sg")
             assert spec["homopolymer"] is True
             # Should reject mixed sequence
             assert not spec_matches_aln(MockAln(), spec)
 
             # Multi-char seq should use prefix mode
-            spec2 = parse_spec("3.Sgg")
+            spec2 = parse_spec("3..Sgg")
             assert spec2["homopolymer"] is False
             # Should accept (starts with GG)
             assert spec_matches_aln(MockAln(), spec2)
