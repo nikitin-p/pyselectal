@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-VERSION = "pyselectal v2.0"
+VERSION = "pyselectal v3.0"
 
 MANUAL = """\
 pyselectal — filter and analyze alignments by 5'-end type
@@ -27,8 +27,26 @@ Options:
   -v, --version                  Print version and exit
 
 5' end type notation (for --select):
-  [n[.m]]<S|M>[seq]    case-insensitive
-  Examples: 1Sg, 2.4S, .5M, 3Saac, M, St
+  [n[..m]]<S|M>[regex]    case-insensitive
+
+  Length constraints:
+    S, M         any soft-clipped / mapped 5' end
+    2S, 3M       exactly 2 soft-clipped / 3 matched bases
+    2..5S        2-5 soft-clipped bases
+    3..M         3+ matched bases
+    ..4S         up to 4 soft-clipped bases
+
+  Exact sequences:
+    Sg = 1Sg     one soft-clipped G
+    Sttc         soft-clipped TTC
+    Maat         matched AAT
+
+  Regex patterns (Python re.fullmatch):
+    Sg+          G-homopolymer of any length
+    ..5Sg+       G-homopolymer of length 1-5
+    Mac+t        matched act, acct, accct, ...
+    Sg.c         soft-clipped gac, ggc, gcc, gtc
+    Sg[ga]c      soft-clipped ggc and gac
 
 """
 
@@ -42,8 +60,6 @@ import pysam
 SOFT = 4   # 'S' soft-clip in pysam CIGAR codes
 MATCH = 0  # 'M' (alignment match) in pysam CIGAR codes
 
-_WARNED = set()
-
 class HelpfulArgumentParser(argparse.ArgumentParser):
     def error(self, message):
         sys.stderr.write(f"Error: {message}\nUse -h for help.\n")
@@ -52,12 +68,6 @@ class HelpfulArgumentParser(argparse.ArgumentParser):
 def die(message):
     sys.stderr.write(f"Error: {message}\nUse -h for help.\n")
     raise SystemExit(2)
-
-def warn_once(key: str, message: str):
-    if key in _WARNED:
-        return
-    _WARNED.add(key)
-    sys.stderr.write(f"Warning: {message}\n")
 
 def _detect_format(path):
     """Detect alignment format from file extension. Returns 'bam', 'sam', or 'cram'."""
@@ -219,74 +229,39 @@ def classify_5prime_type(aln, mapped_prefix=5):
     return None
 
 
-def has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=False):
-    """
-    Exact match mode (n = m = 0):
-        - require that the 5'-end is mapped;
-        - 3'-end soft-clips are allowed;
-    If --prefix is NOT given:
-        - keep reads whose 5'-end CIGAR operation is MATCH (M) and M-length >= k
-           - if k==0: keep reads with 5'-end operation == M (i.e., no 5' soft-clip)
+def has_5prime_mapped_exact(aln, n, pattern=None):
+    """Exact mapped mode: require 5' MATCH of exactly n bases.
 
-    If --prefix IS given:
-        1) if k <= len(prefix) (including k==0):
-            - ignore k; select ONLY by full prefix match (orientation-aware)
-            - emit a warning to stderr once
-        2) if k > len(prefix):
-            - require BOTH:
-                - 5'-end operation == M with M-length >= k
-                - full prefix match (orientation-aware)
+    If pattern is provided, matched sequence must fullmatch the regex.
     """
     if aln.is_unmapped:
         return False
 
     op_5p, len_5p = get_5prime_cigar(aln)
-
-    # Need a MATCH at 5'-end to enforce a prefix
     if op_5p != MATCH:
         return False
-
-    if len_5p is None:
+    if n > 0 and len_5p != n:
         return False
-    
 
-    # If no prefix, only enforce minimum 5' MATCH length (>=k); if k==0, any 5' M passes.
-    if not prefix:
-        if k <= 0:
-            return True
-        return int(len_5p) >= k
-    
-    # If prefix provided:
-    # Case 1: k <= len(prefix) => ignore k, select only by FULL prefix match
-    if k <= len(prefix):
-        if warn_k_ignored:
-            warn_once("k_ignored", f"-k={k} is <= len(--prefix)={len(prefix)} in mapped mode; ignoring -k and selecting only by full prefix.")
-        seq = aln.query_sequence
-        if not seq:
-            return False
-        if aln.is_reverse:
-            return seq[-len(prefix):].upper() == rc_prefix.upper()
-        return seq[:len(prefix)].upper() == prefix.upper()
-
-    # Case 2: k > len(prefix) => require BOTH: 5' MATCH length >= k AND full prefix match
-    if len_5p < k:
-        return False
+    if not pattern:
+        return True
 
     seq = aln.query_sequence
     if not seq:
         return False
 
+    x = int(len_5p)
     if aln.is_reverse:
-        return seq[-len(prefix):].upper() == rc_prefix.upper()
-    return seq[:len(prefix)].upper() == prefix.upper()
+        matched = revcomp(seq[-x:])
+    else:
+        matched = seq[:x]
 
-def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
-    """
-    Exact mode: n = m > 0 (exact n-bp 5' soft-clip):
-      - require 5'-end is (S, n)
-      - if prefix provided (length n):
-          forward: first n bases == prefix
-          reverse: last  n bases == revcomp(prefix)
+    return re.fullmatch(pattern, matched, re.IGNORECASE) is not None
+
+def has_5prime_softclip_exact(aln, n, pattern=None):
+    """Exact mode: exactly n-bp 5' soft-clip.
+
+    If pattern is provided, soft-clip sequence must fullmatch the regex.
     """
     if aln.is_unmapped:
         return False
@@ -295,7 +270,7 @@ def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
     if op_5p != SOFT or len_5p != n:
         return False
 
-    if not prefix:
+    if not pattern:
         return True
 
     seq = aln.query_sequence
@@ -303,25 +278,21 @@ def has_5prime_softclip_exact(aln, n, prefix, rc_prefix):
         return False
 
     if aln.is_reverse:
-        return seq[-n:].upper() == rc_prefix.upper()
-    return seq[:n].upper() == prefix.upper()
+        sc = revcomp(seq[-n:])
+    else:
+        sc = seq[:n]
 
-def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False):
-    """
-    Range mode: n <= length <= m (m=None means unbounded).
+    return re.fullmatch(pattern, sc, re.IGNORECASE) is not None
 
-      - require a 5' soft-clip of length x where:
-            x >= n
-            and (if m is not None) x <= m
-      - if seq is None: only length is checked;
-      - if homopolymer=True and seq is single base: all soft-clipped bases must equal seq
-      - otherwise if seq is provided: soft-clip must start with seq (prefix match)
+def has_5prime_softclip_range(aln, n, m, pattern=None):
+    """Range mode: n <= length <= m (m=None means unbounded).
+
+    If pattern is provided, soft-clip sequence must fullmatch the regex.
     """
     if aln.is_unmapped:
         return False
 
     op_5p, len_5p = get_5prime_cigar(aln)
-
     if op_5p != SOFT:
         return False
 
@@ -331,7 +302,7 @@ def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None, homopolymer=Fals
     if m is not None and x > m:
         return False
 
-    if not seq:
+    if not pattern:
         return True
 
     query = aln.query_sequence
@@ -339,34 +310,22 @@ def has_5prime_softclip_range(aln, n, m, seq=None, rc_seq=None, homopolymer=Fals
         return False
 
     if aln.is_reverse:
-        sc = query[-x:]
-        target = rc_seq.upper()
+        sc = revcomp(query[-x:])
     else:
         sc = query[:x]
-        target = seq.upper()
 
-    sc_upper = sc.upper()
-    if homopolymer:
-        return all(b == target for b in sc_upper)
-    return sc_upper.startswith(target)
+    return re.fullmatch(pattern, sc, re.IGNORECASE) is not None
 
 
-def has_5prime_mapped_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False):
-    """
-    Range mode for mapped 5' ends: n <= length <= m (m=None means unbounded).
+def has_5prime_mapped_range(aln, n, m, pattern=None):
+    """Range mode for mapped 5' ends: n <= length <= m (m=None means unbounded).
 
-      - require a 5' MATCH of length x where:
-            x >= n
-            and (if m is not None) x <= m
-      - if seq is None: only length is checked;
-      - if homopolymer=True and seq is single base: all matched bases must equal seq
-      - otherwise if seq is provided: 5' end must start with seq (prefix match)
+    If pattern is provided, matched sequence must fullmatch the regex.
     """
     if aln.is_unmapped:
         return False
 
     op_5p, len_5p = get_5prime_cigar(aln)
-
     if op_5p != MATCH:
         return False
 
@@ -376,7 +335,7 @@ def has_5prime_mapped_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False)
     if m is not None and x > m:
         return False
 
-    if not seq:
+    if not pattern:
         return True
 
     query = aln.query_sequence
@@ -384,39 +343,11 @@ def has_5prime_mapped_range(aln, n, m, seq=None, rc_seq=None, homopolymer=False)
         return False
 
     if aln.is_reverse:
-        matched = query[-x:]
-        target = rc_seq.upper()
+        matched = revcomp(query[-x:])
     else:
         matched = query[:x]
-        target = seq.upper()
 
-    matched_upper = matched.upper()
-    if homopolymer:
-        return all(b == target for b in matched_upper)
-    return matched_upper.startswith(target)
-
-
-def alignment_matches(aln, n, m, prefix, k, warn_k_ignored=False):
-    """
-    Wrapper that dispatches to the correct mode based on n_min, n_max.
-
-      if n == m > 0 and m is not None,   then: exact soft-clip regime with optional sequence.
-      if n == m == 0,                    then: mapped 5'-end regime with optional prefix.
-      if n < m (including m is None),    then: range soft-clip regime with optional prefix.
-    """
-    # mapped 5'-end regime
-    if n == 0 and m == 0:
-        rc_prefix = revcomp(prefix) if prefix else None
-        return has_5prime_mapped_exact(aln, prefix, rc_prefix, k, warn_k_ignored=warn_k_ignored)
-
-    # exact soft-clip regime only if m is provided and equals n (>0)
-    if m is not None and n == m and n > 0:
-        rc_prefix = revcomp(prefix) if prefix else None
-        return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
-
-    # range regime (includes unbounded top if m is None)
-    rc_prefix = revcomp(prefix) if prefix else None
-    return has_5prime_softclip_range(aln, n, m, prefix, rc_prefix)
+    return re.fullmatch(pattern, matched, re.IGNORECASE) is not None
 
 
 def parse_spec(spec_str):
@@ -480,99 +411,20 @@ def spec_matches_aln(aln, spec):
     if aln.is_unmapped:
         return False
 
+    pattern = spec["seq"]  # now a regex pattern, may be None
+
     if spec["type"] == "S":
-        n, m, seq = spec["n"], spec["m"], spec["seq"]
+        n, m = spec["n"], spec["m"]
         if m is not None and n == m and n > 0:
-            # Exact softclip
-            prefix = seq
-            rc_prefix = revcomp(prefix) if prefix else None
-            return has_5prime_softclip_exact(aln, n, prefix, rc_prefix)
+            return has_5prime_softclip_exact(aln, n, pattern)
         else:
-            # Range softclip — seq is prefix to match (or homopolymer if single base)
-            rc_seq = revcomp(seq) if seq else None
-            return has_5prime_softclip_range(aln, n, m, seq, rc_seq, spec.get("homopolymer", False))
+            return has_5prime_softclip_range(aln, n, m, pattern)
     else:
-        # M mode
-        n, m, seq = spec["n"], spec["m"], spec["seq"]
+        n, m = spec["n"], spec["m"]
         if m is not None and n == m and n > 0:
-            # Exact mapped
-            prefix = seq
-            rc_prefix = revcomp(prefix) if prefix else None
-            return has_5prime_mapped_exact(aln, prefix, rc_prefix, n)
+            return has_5prime_mapped_exact(aln, n, pattern)
         else:
-            # Range mapped — seq is prefix to match (or homopolymer if single base)
-            rc_seq = revcomp(seq) if seq else None
-            return has_5prime_mapped_range(aln, n, m, seq, rc_seq, spec.get("homopolymer", False))
-
-
-def process_group_pe(records, n, m, prefix, k, out_bam, warn_k_ignored=False):
-    """
-    Paired-end mode: records = list of AlignedSegment with the same query_name.
-
-    - Select R1 alignments passing alignment_matches.
-    - For each selected R1:
-        - collect its (next_reference_id, next_reference_start).
-    - Write:
-        - all passing R1s;
-        - all R2s with (reference_id, reference_start) collected above.
-    """
-    if not records:
-        return
-
-    r1_selected = []
-    for r in records:
-        if r.is_read1 and alignment_matches(r, n, m, prefix, k, warn_k_ignored=warn_k_ignored):
-            r1_selected.append(r)
-
-    if not r1_selected:
-        return
-
-    mate_coords = []
-    for r in r1_selected:
-        if r.next_reference_id is not None and r.next_reference_start is not None:
-            if r.next_reference_id >= 0 and r.next_reference_start >= 0:
-                mate_coords.append((r.next_reference_id, r.next_reference_start))
-
-    r2_selected = []
-    for r in records:
-        if r.is_read2 and (r.reference_id, r.reference_start) in mate_coords:
-            r2_selected.append(r)
-
-    for r in r1_selected + r2_selected:
-        out_bam.write(r)
-
-
-def process_stream_se(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=False):
-    """
-    Single-end mode: filter each alignment independently.
-    """
-    for aln in in_bam.fetch(until_eof=True):
-        if alignment_matches(aln, n, m, prefix, k, warn_k_ignored=warn_k_ignored):
-            out_bam.write(aln)
-
-
-def process_stream_pe(in_bam, out_bam, n, m, prefix, k, warn_k_ignored=False):
-    """
-    Paired-end mode: assumes name-sorted BAM (all alignments with the same
-    query_name are contiguous).
-    """
-    current_qname = None
-    group = []
-
-    for aln in in_bam.fetch(until_eof=True):
-        qn = aln.query_name
-        if current_qname is None:
-            current_qname = qn
-            group = [aln]
-        elif qn == current_qname:
-            group.append(aln)
-        else:
-            process_group_pe(group, n, m, prefix, k, out_bam, warn_k_ignored=warn_k_ignored)
-            current_qname = qn
-            group = [aln]
-
-    if group:
-        process_group_pe(group, n, m, prefix, k, out_bam, warn_k_ignored=warn_k_ignored)
+            return has_5prime_mapped_range(aln, n, m, pattern)
 
 
 def parse_args(argv):

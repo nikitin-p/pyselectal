@@ -96,7 +96,7 @@ Modes are mutually exclusive, and setting exactly one is required:
 
 ### Spec grammar
 
-A spec describes a 5′ end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
+A spec describes a 5′ end type as `[n[..m]]<S|M>[regex]` (case-insensitive):
 
 | Part | Meaning |
 | --- | --- |
@@ -104,10 +104,10 @@ A spec describes a 5′ end type as `[n[.m]]<S|M>[seq]` (case-insensitive):
 | `M` | Mapped 5′ end |
 | `n` (before S) | Exactly n soft-clipped bases |
 | `n` (before M) | At least n matched bases |
-| `n.m` | Between n and m bases (inclusive) |
-| `n.` | At least n bases |
-| `.m` | At most m bases |
-| `seq` | Sequence at 5′ end: single base = homopolymer; multi-base = prefix |
+| `n..m` | Between n and m bases (inclusive) |
+| `n..` | At least n bases |
+| `..m` | At most m bases |
+| `regex` | Python regex pattern matched via `re.fullmatch()` |
 
 Reverse-strand alignments are handled automatically (sequence is reverse-complemented before matching).
 
@@ -116,16 +116,16 @@ Examples:
 | Spec | Meaning |
 | --- | --- |
 | `1Sg` | Exactly 1 soft-clipped G |
-| `3Sg` | Exactly 3 soft-clipped Gs (equivalent to `3Sggg`) |
-| `3.Sg` | 3+ soft-clipped Gs (homopolymer — all bases must be G) |
-| `2.Sgg` | 2+ soft-clipped bases starting with GG (prefix match) |
-| `1.3S` | 1–3 soft-clipped bases (any sequence) |
+| `3Sggg` | Exactly 3 soft-clipped GGG |
+| `3..Sg+` | 3+ soft-clipped G-homopolymer (via `g+` regex) |
+| `2..Sgg.*` | 2+ soft-clipped bases starting with GG (via `gg.*` regex) |
+| `1..3S` | 1–3 soft-clipped bases (any sequence) |
 | `S` | Any soft-clipped 5′ end |
-| `3Mg` | Exactly 3 matched Gs (equivalent to `3Mggg`) |
-| `3.Mg` | 3+ matched Gs (homopolymer) |
-| `2.3Ma` | 2–3 matched bases starting with A (prefix match) |
-| `2.M` | 2+ matched bases |
-| `Mg` | Any mapped 5′ end starting with G |
+| `3Mggg` | Exactly 3 matched GGG |
+| `3..Mg+` | 3+ matched G-homopolymer |
+| `2..3Ma.*` | 2–3 matched bases starting with A (via `a.*` regex) |
+| `2..M` | 2+ matched bases |
+| `Sg.c` | Soft-clipped gac, ggc, gcc, gtc |
 | `M` | Any mapped 5′ end |
 
 ## Optional arguments
@@ -163,7 +163,7 @@ pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
 2. Select single-end alignments with 1–3 soft-clipped bases starting with `G` at the 5′ end:
 
 ```bash
-pyselectal.py -i in.bam --select 1.3Sg -o out.bam
+pyselectal.py -i in.bam --select 1..3Sg.* -o out.bam
 ```
 
 3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T`, or exactly 2 soft-clipped `G`s, or with a mapped 5' end, at the 5′ end and put the selected alignments in the respective output BAM files (one per 5' end type):
@@ -187,7 +187,7 @@ pyselectal.py -i in.bam --select Mgg > out.bam
 6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint (stdout piped to another tool):
 
 ```bash
-pyselectal.py -i in.bam --select 10.M | samtools view -c
+pyselectal.py -i in.bam --select 10..M | samtools view -c
 ```
 
 7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:

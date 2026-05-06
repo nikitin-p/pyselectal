@@ -27,7 +27,7 @@ class TestVersion:
         assert exc.value.code == 0
 
     def test_version_string(self):
-        assert "v2.0" in VERSION
+        assert "v3.0" in VERSION
 
 
 class TestHelp:
@@ -387,9 +387,9 @@ class TestSpecMatchesSE:
         assert ("READ7", 16) in names
         assert len(hits) == 3
 
-    def test_2sg_selects_2bp_softclip_g(self):
-        """2Sg: exact 2bp GG -> READ1(2048), READ4(16), READ6(256)."""
-        hits = _matching_reads(SE_BAM, "2Sg")
+    def test_2sgg_selects_2bp_softclip_gg(self):
+        """2Sgg: exact 2bp GG -> READ1(2048), READ4(16), READ6(256)."""
+        hits = _matching_reads(SE_BAM, "2Sgg")
         assert len(hits) == 3
         names_flags = {(n, f) for n, f in hits}
         assert ("READ1", 2048) in names_flags
@@ -415,91 +415,65 @@ class TestSpecMatchesSE:
         assert len(hits) == 2
         assert all(n == "READ5" for n, _ in hits)
 
-    def test_3sg_exact(self):
-        """3Sg: exact 3bp GGG -> READ3(0) fwd, READ2(272) rev."""
-        hits = _matching_reads(SE_BAM, "3Sg")
+    def test_3sggg_exact(self):
+        """3Sggg: exact 3bp GGG -> READ3(0) fwd, READ2(272) rev."""
+        hits = _matching_reads(SE_BAM, "3Sggg")
         assert len(hits) == 2
         names_flags = {(n, f) for n, f in hits}
         assert ("READ3", 0) in names_flags
         assert ("READ2", 272) in names_flags
 
 
-class TestHomopolymerMatching:
-    """Test homopolymer matching for range specs."""
+class TestRegexMatching:
+    """Test regex matching for specs."""
 
-    def test_range_softclip_homopolymer_accepts_pure(self):
-        """3..Sg accepts 3+ pure G soft-clips."""
-        hits = _matching_reads(SE_BAM, "3..Sg")
+    def test_homopolymer_via_plus(self):
+        """Sg+ matches any G-homopolymer (any length)."""
+        hits = _matching_reads(SE_BAM, "Sg+")
+        # All 10 reads have G softclips (fwd) or C softclips (rev, revcomped to G)
+        assert len(hits) == 10
+
+    def test_homopolymer_with_length(self):
+        """3..Sg+ matches 3+ pure G soft-clips."""
+        hits = _matching_reads(SE_BAM, "3..Sg+")
         names = [n for n, f in hits]
         assert "READ3" in names  # 3Sggg
         assert "READ5" in names  # 4Sgggg
         # Should not match 1S or 2S reads
         assert ("READ1", 0) not in hits  # 1Sg
 
-    def test_range_softclip_homopolymer_rejects_mixed(self):
-        """Homopolymer mode rejects non-homopolymer soft-clips."""
-        # Use has_5prime_softclip_range directly with a mock alignment
-        class MockAln:
-            is_unmapped = False
-            is_reverse = False
-            query_sequence = "GGAT" + "A" * 72  # 4-bp soft-clip but not all G
+    def test_homopolymer_max_length(self):
+        """..2Sg+ matches G-homopolymer of length 1-2."""
+        hits = _matching_reads(SE_BAM, "..2Sg+")
+        # Should match 1S and 2S reads only (6 total)
+        assert len(hits) == 6
+        for name, flag in hits:
+            assert name not in ("READ3", "READ5")
 
-        # Mock get_5prime_cigar to return (SOFT, 4)
-        from pyselectal import SOFT
-        import pyselectal
-        original_get = pyselectal.get_5prime_cigar
-        pyselectal.get_5prime_cigar = lambda aln: (SOFT, 4)
-        try:
-            # Prefix mode (homopolymer=False) should match (starts with G)
-            assert has_5prime_softclip_range(MockAln(), 3, None, "G", "C", homopolymer=False)
-            # Homopolymer mode should reject (not all G)
-            assert not has_5prime_softclip_range(MockAln(), 3, None, "G", "C", homopolymer=True)
-        finally:
-            pyselectal.get_5prime_cigar = original_get
+    def test_exact_requires_full_match(self):
+        """2Sa matches exactly 'a' on 2bp — no match (regex too short)."""
+        hits = _matching_reads(SE_BAM, "2Sa")
+        assert len(hits) == 0
 
-    def test_range_mapped_homopolymer_rejects_mixed(self):
-        """Homopolymer mode rejects non-homopolymer matched bases."""
-        class MockAln:
-            is_unmapped = False
-            is_reverse = False
-            query_sequence = "GGAT" + "A" * 72  # 4-bp match but not all G
+    def test_character_class(self):
+        """S[gc] matches 1bp G or C softclip."""
+        hits = _matching_reads(SE_BAM, "S[gc]")
+        # Should match 1Sg reads: READ1(0), READ2(16), READ7(16)
+        assert len(hits) == 3
 
-        from pyselectal import MATCH
-        import pyselectal
-        original_get = pyselectal.get_5prime_cigar
-        pyselectal.get_5prime_cigar = lambda aln: (MATCH, 4)
-        try:
-            # Prefix mode should match (starts with G)
-            assert has_5prime_mapped_range(MockAln(), 3, None, "G", "C", homopolymer=False)
-            # Homopolymer mode should reject (not all G)
-            assert not has_5prime_mapped_range(MockAln(), 3, None, "G", "C", homopolymer=True)
-        finally:
-            pyselectal.get_5prime_cigar = original_get
+    def test_dot_any_char(self):
+        """2Sg. matches 2bp softclip starting with G."""
+        hits = _matching_reads(SE_BAM, "2Sg.")
+        # Should match 2Sgg reads: READ1(2048), READ4(16), READ6(256)
+        assert len(hits) == 3
 
-    def test_spec_matches_range_softclip_homopolymer(self):
-        """spec_matches_aln uses homopolymer mode for range specs."""
-        class MockAln:
-            is_unmapped = False
-            is_reverse = False
-            query_sequence = "GGAT" + "A" * 72
-
-        from pyselectal import SOFT
-        import pyselectal
-        original_get = pyselectal.get_5prime_cigar
-        pyselectal.get_5prime_cigar = lambda aln: (SOFT, 4)
-        try:
-            spec = parse_spec("3..Sg")
-            assert spec["homopolymer"] is True
-            # Should reject mixed sequence
-            assert not spec_matches_aln(MockAln(), spec)
-
-            # Multi-char seq should use prefix mode
-            spec2 = parse_spec("3..Sgg")
-            assert spec2["homopolymer"] is False
-            # Should accept (starts with GG)
-            assert spec_matches_aln(MockAln(), spec2)
-        finally:
-            pyselectal.get_5prime_cigar = original_get
+    def test_prefix_via_dotstar(self):
+        """3..Sgg.* matches 3+ soft-clips starting with GG."""
+        hits = _matching_reads(SE_BAM, "3..Sgg.*")
+        names = [n for n, f in hits]
+        # READ3 (3Sggg) and READ5 (4Sgggg) should match
+        assert "READ3" in names
+        assert "READ5" in names
 
 
 # ---------------------------------------------------------------------------
@@ -524,9 +498,9 @@ class TestSelectEndToEnd:
         """Single input + multiple specs -> {stem}_{spec}.bam files."""
         # Use tmp_path as working directory for outputs
         os.chdir(str(tmp_path))
-        main(["-i", SE_BAM, "-s", "1Sg,2Sg"])
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg"])
         out1 = str(tmp_path / "test_softclip_se_1sg.bam")
-        out2 = str(tmp_path / "test_softclip_se_2sg.bam")
+        out2 = str(tmp_path / "test_softclip_se_2sgg.bam")
         assert os.path.exists(out1)
         assert os.path.exists(out2)
         assert _count_reads_in_bam(out1) == 3
@@ -560,11 +534,11 @@ class TestMergeEndToEnd:
     """End-to-end tests for --select --merge mode."""
 
     def test_merge_se_combines_specs(self, tmp_path):
-        """Merge 1Sg + 2Sg should yield union (no duplicates)."""
+        """Merge 1Sg + 2Sgg should yield union (no duplicates)."""
         out = str(tmp_path / "out.bam")
-        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-o", out])
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "-m", "-o", out])
         # 1Sg: READ1(0), READ2(16), READ7(16) = 3
-        # 2Sg: READ1(2048), READ4(16), READ6(256) = 3
+        # 2Sgg: READ1(2048), READ4(16), READ6(256) = 3
         # No overlap -> 6
         assert _count_reads_in_bam(out) == 6
 
@@ -578,7 +552,7 @@ class TestMergeEndToEnd:
     def test_merge_se_output_naming(self, tmp_path):
         """Merge produces {stem}_merged.bam when no -o given."""
         os.chdir(str(tmp_path))
-        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m"])
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "-m"])
         expected = str(tmp_path / "test_softclip_se_merged.bam")
         assert os.path.exists(expected)
         assert _count_reads_in_bam(expected) == 6
@@ -586,14 +560,14 @@ class TestMergeEndToEnd:
     def test_merge_se_respects_output_flag(self, tmp_path):
         """-o overrides automatic naming."""
         out = str(tmp_path / "custom.bam")
-        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-o", out])
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "-m", "-o", out])
         assert os.path.exists(out)
         assert _count_reads_in_bam(out) == 6
 
     def test_merge_pe(self, tmp_path):
         """PE merge: R1 matching any spec + their R2 mates."""
         out = str(tmp_path / "out.bam")
-        main(["-i", PE_BAM, "-s", "1Sg,2Sg", "-p", "-m", "-o", out])
+        main(["-i", PE_BAM, "-s", "1Sg,2Sgg", "-p", "-m", "-o", out])
         count = _count_reads_in_bam(out)
         assert count > 0
 
@@ -1204,10 +1178,10 @@ class TestSAMFormat:
     def test_bam_merge_to_sam(self, tmp_path):
         """BAM input + --merge + -S → SAM output."""
         out = str(tmp_path / "merged.sam")
-        main(["-i", SE_BAM, "-s", "1Sg,2Sg", "-m", "-S", "-o", out])
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "-m", "-S", "-o", out])
         with pysam.AlignmentFile(out, "r") as f:
             count = sum(1 for _ in f.fetch(until_eof=True))
-        assert count == 6  # 1Sg=3, 2Sg=3, no overlap
+        assert count == 6  # 1Sg=3, 2Sgg=3, no overlap
 
 
 # ---------------------------------------------------------------------------
