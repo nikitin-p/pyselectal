@@ -1,14 +1,24 @@
 # pyselectal
 
-Pyselectal (Python selection of alignments) is a Python script for filtering alignments in the BAM format by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
+Pyselectal (Python selection of alignments) is a Python script for filtering alignments in BAM, SAM and CRAM formats by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
+
+**Version 3.0**
+
+### Changelog
+
+- **v3.0** — Range notation changed from `.` to `..`; sequence matching now uses Python regex (`re.fullmatch()`).
+- **v2.0** — New CLI with `--select`, `--count`, `--all` modes; spec grammar; SAM/CRAM support; paired-end mode.
+- **v1.0** — Initial release with basic soft-clip filtering.
 
 ## Contents
 
+- [Changelog](#changelog)
 - [Concept and motivation](#concept-and-motivation)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Input](#input)
+- [Output](#output)
 - [Modes](#modes)
 - [Optional arguments](#optional-arguments)
 - [Examples](#examples)
@@ -82,13 +92,26 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 
 `-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. At least one input file is required.
 
+## Output
+
+By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
+
+Output file naming depends on the mode:
+
+- `--select`: `{stem}_{spec}.bam` per spec, or `stdout` for single input + single spec;
+- `--select --merge`: `{stem}_merged.bam` per input file;
+- `--count`: `stdout` for single input, or `{stem}_5prime_counts.tsv` per input file;
+- `--all`: `{stem}_{type}.bam` per 5′ end type, per input file.
+
+Use `-o` to override: specify a file path for `--select`, or a directory for `--all`.
+
 ## Modes
 
 ### Definitions
 
-Modes are mutually exclusive, and setting exactly one is required:
+Modes are mutually exclusive, and setting exactly one is required. In the output file naming schemes below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`).
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. Use `--merge` to combine multiple specs into one output file (`{stem}_merged.bam`); see [Optional arguments](#optional-arguments) below.
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs.
 
 `-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into an `other` type. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
@@ -102,8 +125,7 @@ A spec describes a 5′ end type as `[n[..m]]<S|M>[regex]` (case-insensitive):
 | --- | --- |
 | `S` | Soft-clipped 5′ end |
 | `M` | Mapped 5′ end |
-| `n` (before S) | Exactly n soft-clipped bases |
-| `n` (before M) | At least n matched bases |
+| `n` (before S or M) | Exactly n bases |
 | `n..m` | Between n and m bases (inclusive) |
 | `n..` | At least n bases |
 | `..m` | At most m bases |
@@ -230,19 +252,19 @@ These files are intended for testing, debugging, and illustrating tool behaviour
 
 Single-end test BAM containing a curated set of alignments with diverse 5′-end configurations:
 
-- Alignments with **5′ soft-clips** of varying lengths (`1S`, `2S`, `3S`, `4S`).
-- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**.
-- Alignments on both plus and minus strands.
-- Homopolymer soft-clips (`G` or `C`), suitable for testing range-based selection.
+- Alignments with **5′ soft-clips** of varying lengths (`1S`, `2S`, `3S`, `4S`);
+- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**;
+- Alignments on both plus and minus strands;
+- Homopolymer soft-clips (`G` or `C`), suitable for testing range-based selection;
 - Multiple alignments per query, to ensure selection depends only on CIGAR structure and sequence content, and not on mapping multiplicity.
 
 ### `test_softclip_pe.bam`
 
 Paired-end test BAM containing alignments grouped by query name and matching various conditions:
 
-- R1 has a 5′ soft-clip.
-- R1 has a mapped 5′ end.
-- R1 has multiple alternative alignments.
+- R1 has a 5′ soft-clip;
+- R1 has a mapped 5′ end;
+- R1 has multiple alternative alignments;
 - R1 alignment is associated with more than one R2 alignment.
 
 Test BAM files are small and can be inspected manually with:
