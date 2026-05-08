@@ -860,9 +860,9 @@ class TestCollapseThreshold:
         write_count_tsv(counts, out, collapse_threshold=5.0)
         _, rows = _read_tsv(out)
         types = [t for t, _ in rows]
-        assert any("other (<5%)" in t for t in types)
+        assert any("other_soft_clipped (<5%)" in t for t in types)
         # other row count = 3
-        other_count = dict(rows).get("other (<5%)", 0)
+        other_count = dict(rows).get("other_soft_clipped (<5%)", 0)
         assert other_count == 3
 
     def test_collapse_other_row_is_last(self, tmp_path):
@@ -872,7 +872,7 @@ class TestCollapseThreshold:
         out = str(tmp_path / "out.tsv")
         write_count_tsv(counts, out, collapse_threshold=5.0)
         _, rows = _read_tsv(out)
-        assert rows[-1][0] == "other (<5%)"
+        assert rows[-1][0] == "other_soft_clipped (<5%)"
         assert rows[-1][1] == 10
 
     def test_collapse_zero_disables(self, tmp_path):
@@ -892,7 +892,7 @@ class TestCollapseThreshold:
         write_count_tsv(counts, out, collapse_threshold=10.0)
         _, rows = _read_tsv(out)
         types = [t for t, _ in rows]
-        assert any("other (<10%)" in t for t in types)
+        assert any("other_soft_clipped (<10%)" in t for t in types)
 
     def test_collapse_total_preserved(self, tmp_path):
         """Sum of all counts (including other) equals original total."""
@@ -917,11 +917,11 @@ class TestCollapseThreshold:
         main(["-i", SE_BAM, "-c", "--collapse-threshold", "25", "-o", out])
         _, rows = _read_tsv(out)
         row_dict = dict(rows)
-        assert "other (<25%)" in row_dict
-        assert row_dict["other (<25%)"] == 4  # 2 + 2
+        assert "other_soft_clipped (<25%)" in row_dict
+        assert row_dict["other_soft_clipped (<25%)"] == 4  # 2 + 2
         assert "3Sggg" not in row_dict
         assert "4Sgggg" not in row_dict
-        assert rows[-1][0] == "other (<25%)"
+        assert rows[-1][0] == "other_soft_clipped (<25%)"
 
     def test_collapse_cli_zero_disables(self, tmp_path):
         """--collapse-threshold 0 shows all rows."""
@@ -930,6 +930,21 @@ class TestCollapseThreshold:
         _, rows = _read_tsv(out)
         assert len(rows) == 4
         assert not any("other" in t for t, _ in rows)
+
+    def test_collapse_mixed_types_two_other_rows(self, tmp_path):
+        """Rare S-types and M-types collapse into separate other rows."""
+        counts = {"1Sg": 80, "3Sggg": 5, "10Mggggg": 5, "2Sgg": 10}
+        # total=100; 3Sggg=5% and 10Mggggg=5%, both < 10% -> collapse
+        out = str(tmp_path / "out.tsv")
+        write_count_tsv(counts, out, collapse_threshold=10.0)
+        _, rows = _read_tsv(out)
+        row_dict = dict(rows)
+        assert "other_soft_clipped (<10%)" in row_dict
+        assert "other_mapped (<10%)" in row_dict
+        assert row_dict["other_soft_clipped (<10%)"] == 5
+        assert row_dict["other_mapped (<10%)"] == 5
+        assert "3Sggg" not in row_dict
+        assert "10Mggggg" not in row_dict
 
     def test_collapse_parse_args_default(self):
         args = parse_args(["-i", "in.bam", "-c"])
@@ -1198,7 +1213,7 @@ class TestAllCollapse:
         """threshold=25%: 3Sggg(20%) and 4Sgggg(20%) route to _other.bam."""
         out_dir = str(tmp_path / "split")
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
-        other = os.path.join(out_dir, "test_softclip_se_other.bam")
+        other = os.path.join(out_dir, "test_softclip_se_other_soft_clipped.bam")
         assert os.path.exists(other)
         assert _count_reads_in_bam(other) == 4  # 2 + 2
 
@@ -1213,7 +1228,8 @@ class TestAllCollapse:
         """--collapse-threshold 0 produces one file per type (no other)."""
         out_dir = str(tmp_path / "split")
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "0", "-o", out_dir])
-        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other.bam"))
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other_soft_clipped.bam"))
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other_mapped.bam"))
         assert os.path.exists(os.path.join(out_dir, "test_softclip_se_3sggg.bam"))
         assert os.path.exists(os.path.join(out_dir, "test_softclip_se_4sgggg.bam"))
         assert _count_reads_in_bam(os.path.join(out_dir, "test_softclip_se_3sggg.bam")) == 2
@@ -1233,7 +1249,7 @@ class TestAllCollapse:
         """_other.bam contains alignments from all rare types combined."""
         out_dir = str(tmp_path / "split")
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
-        other = os.path.join(out_dir, "test_softclip_se_other.bam")
+        other = os.path.join(out_dir, "test_softclip_se_other_soft_clipped.bam")
         with pysam.AlignmentFile(other, "rb") as f:
             names = {a.query_name for a in f.fetch(until_eof=True)}
         # 3Sggg: READ3(0), READ2(272); 4Sgggg: READ5(0), READ5(2064)
@@ -1244,13 +1260,61 @@ class TestAllCollapse:
         """PE collapse is computed from R1 only; R2 mates follow their R1 into other."""
         out_dir = str(tmp_path / "split")
         main(["-i", PE_BAM, "-a", "-p", "--collapse-threshold", "99", "-o", out_dir])
-        other = os.path.join(out_dir, "test_softclip_pe_other.bam")
+        other = os.path.join(out_dir, "test_softclip_pe_other_soft_clipped.bam")
         assert os.path.exists(other)
         with pysam.AlignmentFile(other, "rb") as f:
             alns = list(f.fetch(until_eof=True))
         # At high threshold everything collapses; R2s must also be present
         r2_count = sum(1 for a in alns if a.is_read2)
         assert r2_count > 0
+
+    def test_all_collapse_mixed_types_two_other_files(self, tmp_path):
+        """With rare S and M types both present, both other files are created."""
+        bam_path = str(tmp_path / "mixed.bam")
+        header = pysam.AlignmentHeader.from_dict({
+            "HD": {"VN": "1.6", "SO": "coordinate"},
+            "SQ": [{"SN": "chr1", "LN": 300}],
+        })
+        with pysam.AlignmentFile(bam_path, "wb", header=header) as dst:
+            def _write(name, flag, cigar, seq):
+                r = pysam.AlignedSegment(header)
+                r.query_name = name
+                r.flag = flag
+                r.reference_id = 0
+                r.reference_start = 10
+                r.mapping_quality = 30
+                r.cigar = cigar
+                r.query_sequence = seq
+                r.query_qualities = pysam.qualitystring_to_array("I" * len(seq))
+                dst.write(r)
+            # 5 reads of type 1Sg (50%)
+            for i in range(5):
+                _write(f"SC1_{i}", 0, [(4, 1), (0, 75)], "G" + "A" * 75)
+            # 2 reads of type 2Sgg (20%) — rare S-type
+            for i in range(2):
+                _write(f"SC2_{i}", 0, [(4, 2), (0, 74)], "GG" + "A" * 74)
+            # 2 reads of type 76Mggggg (20%) — rare M-type (no soft-clip)
+            for i in range(2):
+                _write(f"MAP_{i}", 0, [(0, 76)], "G" * 5 + "A" * 71)
+
+        out_dir = str(tmp_path / "split")
+        main(["-i", bam_path, "-a", "--collapse-threshold", "25", "-o", out_dir])
+
+        stem = "mixed"
+        sc_other = os.path.join(out_dir, f"{stem}_other_soft_clipped.bam")
+        m_other  = os.path.join(out_dir, f"{stem}_other_mapped.bam")
+
+        assert os.path.exists(sc_other), "_other_soft_clipped.bam not created"
+        assert os.path.exists(m_other),  "_other_mapped.bam not created"
+        assert _count_reads_in_bam(sc_other) == 2
+        assert _count_reads_in_bam(m_other)  == 2
+
+    def test_all_collapse_only_soft_no_mapped_other(self, tmp_path):
+        """When all rare types are S-type, _other_mapped.bam is not created."""
+        out_dir = str(tmp_path / "split")
+        main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
+        mapped_other = os.path.join(out_dir, "test_softclip_se_other_mapped.bam")
+        assert not os.path.exists(mapped_other)
 
 
 # ---------------------------------------------------------------------------

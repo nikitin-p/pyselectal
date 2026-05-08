@@ -113,9 +113,9 @@ Modes are mutually exclusive, and setting exactly one is required. In the output
 
 `-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs.
 
-`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into an `other` type. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
+`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
-`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into a single `{stem}_other` file, instead of individual per-type files.
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into `{stem}_other_soft_clipped.bam` (soft-clipped) and `{stem}_other_mapped.bam` (mapped) instead of individual per-type files.
 
 ### Spec grammar
 
@@ -168,7 +168,7 @@ Examples:
 
 `--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
 
-`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into an `other` type (`--count`) or `{stem}_other` file (`--all`) (default: 1; 0 = off).
+`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows (`--count`) or into `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam` (`--all`) (default: 1; 0 = off).
 
 `-h, --help` — Display a full manual and exit.
 
@@ -218,13 +218,13 @@ pyselectal.py -i in.bam --select 10..M | samtools view -c
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other.bam`:
+8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-9. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other.bam`, instead of individual files.
+9. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files.
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/

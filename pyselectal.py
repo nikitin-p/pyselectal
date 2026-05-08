@@ -191,6 +191,11 @@ def get_5prime_cigar(aln):
     return (cig[-1] if aln.is_reverse else cig[0])
 
 
+def _other_type(t):
+    """Determine the 'other' category for a collapsed type string."""
+    return "other_mapped" if "M" in t else "other_soft_clipped"
+
+
 def classify_5prime_type(aln, mapped_prefix=5):
     """
     Classify an alignment's 5' end type as a string.
@@ -833,19 +838,24 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
     """Write type\\tcount TSV sorted by descending count.
 
     Categories whose percentage of total is strictly below collapse_threshold
-    are collapsed into a single 'other (<N%)' row appended at the end.
-    collapse_threshold=0 disables collapsing.
+    are collapsed into 'other_soft_clipped (<N%)' or 'other_mapped (<N%)'
+    rows appended at the end. collapse_threshold=0 disables collapsing.
     """
     total = sum(counts.values())
     if collapse_threshold == 0 or total == 0:
         main_rows = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
-        other_count = 0
+        other_sc_count = 0
+        other_m_count = 0
     else:
         main_items = []
-        other_count = 0
+        other_sc_count = 0
+        other_m_count = 0
         for t, c in counts.items():
             if c / total * 100 < collapse_threshold:
-                other_count += c
+                if "M" in t:
+                    other_m_count += c
+                else:
+                    other_sc_count += c
             else:
                 main_items.append((t, c))
         main_rows = sorted(main_items, key=lambda x: (-x[1], x[0]))
@@ -858,9 +868,12 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
         f.write("type\tcount\n")
         for t, c in main_rows:
             f.write(f"{t}\t{c}\n")
-        if other_count > 0:
-            label = f"other (<{collapse_threshold:g}%)"
-            f.write(f"{label}\t{other_count}\n")
+        if other_sc_count > 0:
+            label = f"other_soft_clipped (<{collapse_threshold:g}%)"
+            f.write(f"{label}\t{other_sc_count}\n")
+        if other_m_count > 0:
+            label = f"other_mapped (<{collapse_threshold:g}%)"
+            f.write(f"{label}\t{other_m_count}\n")
     finally:
         if out_path != "-":
             f.close()
@@ -954,7 +967,7 @@ def process_all_se(in_bam, in_path, args, collapse_types=None):
             t = classify_5prime_type(aln)
             if t is None:
                 continue
-            effective_t = "other" if (collapse_types and t in collapse_types) else t
+            effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
             out = _get_or_open_all_file(effective_t, in_bam, in_path, args, open_files)
             out.write(aln)
     finally:
@@ -974,7 +987,7 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
         t = classify_5prime_type(r)
         if t is None:
             continue
-        effective_t = "other" if (collapse_types and t in collapse_types) else t
+        effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
         out = _get_or_open_all_file(effective_t, in_bam, in_path, args, open_files)
         out.write(r)
         if (r.next_reference_id is not None and r.next_reference_start is not None
