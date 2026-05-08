@@ -99,7 +99,9 @@ By default, the output format matches the input format; with multiple input file
 Output file naming depends on the mode:
 
 - `--select`: `{stem}_{spec}.bam` per spec, or `stdout` for single input + single spec;
+- `--select --unmatched`: additionally writes `{stem}_{spec}_unmatched.bam` per spec;
 - `--select --merge`: `{stem}_merged.bam` per input file;
+- `--select --merge --unmatched`: additionally writes `{stem}_unmatched.bam` per input file;
 - `--count`: `stdout` for single input, or `{stem}_5prime_counts.tsv` per input file;
 - `--all`: `{stem}_{type}.bam` per 5′ end type, per input file.
 
@@ -111,7 +113,7 @@ Use `-o` to override: specify a file path for `--select`, or a directory for `--
 
 Modes are mutually exclusive, and setting exactly one is required. In the output file naming schemes below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`).
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs.
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_{spec}_unmatched.bam` per spec, or to `{stem}_unmatched.bam` with `--merge`.
 
 `-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
@@ -155,6 +157,8 @@ Examples:
 `-o, --output PATH` — Output file path (for `--select`) or directory (for `--all`). Overrides automatic naming.
 
 `-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
+
+`--unmatched` — Write alignments that do not match any spec to a separate auto-named file. Without `--merge`: `{stem}_{spec}_unmatched{ext}` per spec. With `--merge`: `{stem}_unmatched{ext}`. Only valid with `--select`. Not affected by `-o`.
 
 `-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
 

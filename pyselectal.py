@@ -16,6 +16,7 @@ Options:
   -i, --input FILE[,FILE,...]    Input file(s), comma-separated; format auto-detected from extension (required)
   -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
+  --unmatched                    Write non-matching alignments to a separate file
   -n, --name                     Name-sort input internally
   -t, --threads N                BGZF threads (default: 1)
   -p, --paired                   Paired-end mode
@@ -469,6 +470,8 @@ def parse_args(argv):
     # Options
     parser.add_argument("-m", "--merge", action="store_true",
                         help="Merge multiple --select specs into one output file.")
+    parser.add_argument("--unmatched", action="store_true",
+                        help="Write non-matching alignments to a separate auto-named file.")
     parser.add_argument("-n", "--name", action="store_true",
                         help="Name-sort input BAM internally (pysam.sort -n).")
     parser.add_argument("-t", "--threads", type=int, default=1,
@@ -528,6 +531,10 @@ def parse_args(argv):
     # --merge only with --select
     if args.merge and args.select is None:
         parser.error("-m/--merge can only be used with -s/--select.")
+
+    # --unmatched only with --select
+    if args.unmatched and args.select is None:
+        parser.error("--unmatched can only be used with -s/--select.")
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
@@ -603,14 +610,16 @@ def open_alignment_files(in_path, out_path, threads,
         die(f"Failed to open alignment files: {e}")
     return in_bam, out_bam
                                                         
-def process_select_se(in_bam, out_bam, spec):
+def process_select_se(in_bam, out_bam, spec, unmatched_bam=None):
     """Single-end --select: write alignments matching spec."""
     for aln in in_bam.fetch(until_eof=True):
         if spec_matches_aln(aln, spec):
             out_bam.write(aln)
+        elif unmatched_bam is not None:
+            unmatched_bam.write(aln)
 
 
-def process_select_pe(in_bam, out_bam, spec):
+def process_select_pe(in_bam, out_bam, spec, unmatched_bam=None):
     """Paired-end --select: group by query_name, select R1, emit R1+R2."""
     current_qname = None
     group = []
@@ -623,35 +632,54 @@ def process_select_pe(in_bam, out_bam, spec):
         elif qn == current_qname:
             group.append(aln)
         else:
-            _flush_pe_group(group, spec, out_bam)
+            _flush_pe_group(group, spec, out_bam, unmatched_bam)
             current_qname = qn
             group = [aln]
 
     if group:
-        _flush_pe_group(group, spec, out_bam)
+        _flush_pe_group(group, spec, out_bam, unmatched_bam)
 
 
-def _flush_pe_group(records, spec, out_bam):
-    """Select R1s matching spec, then emit their R2 mates."""
+def _flush_pe_group(records, spec, out_bam, unmatched_bam=None):
+    """Select R1s matching spec, then emit their R2 mates; mirror non-matching to unmatched_bam."""
     if not records:
         return
 
-    r1_selected = [r for r in records
-                   if r.is_read1 and spec_matches_aln(r, spec)]
-    if not r1_selected:
-        return
-
-    mate_coords = set()
-    for r in r1_selected:
-        if (r.next_reference_id is not None and r.next_reference_start is not None
-                and r.next_reference_id >= 0 and r.next_reference_start >= 0):
-            mate_coords.add((r.next_reference_id, r.next_reference_start))
-
-    for r in r1_selected:
-        out_bam.write(r)
+    r1_matched, r1_unmatched = [], []
     for r in records:
-        if r.is_read2 and (r.reference_id, r.reference_start) in mate_coords:
+        if r.is_read1:
+            if spec_matches_aln(r, spec):
+                r1_matched.append(r)
+            elif unmatched_bam is not None:
+                r1_unmatched.append(r)
+
+    matched_mate_coords = set()
+    if r1_matched:
+        matched_mate_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in r1_matched
+            if r.next_reference_id is not None and r.next_reference_start is not None
+               and r.next_reference_id >= 0 and r.next_reference_start >= 0
+        }
+        for r in r1_matched:
             out_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in matched_mate_coords:
+                out_bam.write(r)
+
+    if unmatched_bam is not None and r1_unmatched:
+        # Exclude R2s already claimed by a matched R1 to avoid duplicates.
+        unmatched_mate_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in r1_unmatched
+            if r.next_reference_id is not None and r.next_reference_start is not None
+               and r.next_reference_id >= 0 and r.next_reference_start >= 0
+        } - matched_mate_coords
+        for r in r1_unmatched:
+            unmatched_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
+                unmatched_bam.write(r)
 
 
 def _select_output_path(in_path, spec, args, out_fmt):
@@ -673,16 +701,41 @@ def _merge_output_path(in_path, args, out_fmt):
     return f"{stem}_merged{_fmt_ext(out_fmt)}"
 
 
-def process_select_merge_se(in_bam, out_bam, specs):
+def _unmatched_output_path(in_path, spec, out_fmt):
+    """Auto-named unmatched file for a single spec: {stem}_{spec}_unmatched{ext}."""
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_{spec['raw']}_unmatched{_fmt_ext(out_fmt)}"
+
+
+def _unmatched_merge_output_path(in_path, out_fmt):
+    """Auto-named unmatched file for --merge: {stem}_unmatched{ext}."""
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_unmatched{_fmt_ext(out_fmt)}"
+
+
+def _open_unmatched_bam(path, in_bam, out_fmt, threads, reference):
+    """Open a write-mode BAM/SAM/CRAM file for unmatched alignments."""
+    kw = {'template': in_bam}
+    if threads > 1:
+        kw['threads'] = threads
+    if out_fmt == 'cram' and reference:
+        kw['reference_filename'] = reference
+    return pysam.AlignmentFile(path, _pysam_write_mode(out_fmt), **kw)
+
+
+def process_select_merge_se(in_bam, out_bam, specs, unmatched_bam=None):
     """Single-end --select --merge: write alignments matching any spec, once each."""
     for aln in in_bam.fetch(until_eof=True):
         for spec in specs:
             if spec_matches_aln(aln, spec):
                 out_bam.write(aln)
                 break
+        else:
+            if unmatched_bam is not None:
+                unmatched_bam.write(aln)
 
 
-def process_select_merge_pe(in_bam, out_bam, specs):
+def process_select_merge_pe(in_bam, out_bam, specs, unmatched_bam=None):
     """Paired-end --select --merge: group by query_name, select R1 matching any spec."""
     current_qname = None
     group = []
@@ -695,42 +748,57 @@ def process_select_merge_pe(in_bam, out_bam, specs):
         elif qn == current_qname:
             group.append(aln)
         else:
-            _flush_pe_group_merge(group, specs, out_bam)
+            _flush_pe_group_merge(group, specs, out_bam, unmatched_bam)
             current_qname = qn
             group = [aln]
 
     if group:
-        _flush_pe_group_merge(group, specs, out_bam)
+        _flush_pe_group_merge(group, specs, out_bam, unmatched_bam)
 
 
-def _flush_pe_group_merge(records, specs, out_bam):
-    """Select R1s matching any spec (deduplicated), then emit their R2 mates."""
+def _flush_pe_group_merge(records, specs, out_bam, unmatched_bam=None):
+    """Select R1s matching any spec (deduplicated), then emit their R2 mates; mirror non-matching to unmatched_bam."""
     if not records:
         return
 
-    r1_selected = []
+    r1_matched, r1_unmatched = [], []
     for r in records:
         if not r.is_read1:
             continue
         for spec in specs:
             if spec_matches_aln(r, spec):
-                r1_selected.append(r)
+                r1_matched.append(r)
                 break
+        else:
+            if unmatched_bam is not None:
+                r1_unmatched.append(r)
 
-    if not r1_selected:
-        return
-
-    mate_coords = set()
-    for r in r1_selected:
-        if (r.next_reference_id is not None and r.next_reference_start is not None
-                and r.next_reference_id >= 0 and r.next_reference_start >= 0):
-            mate_coords.add((r.next_reference_id, r.next_reference_start))
-
-    for r in r1_selected:
-        out_bam.write(r)
-    for r in records:
-        if r.is_read2 and (r.reference_id, r.reference_start) in mate_coords:
+    matched_mate_coords = set()
+    if r1_matched:
+        matched_mate_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in r1_matched
+            if r.next_reference_id is not None and r.next_reference_start is not None
+               and r.next_reference_id >= 0 and r.next_reference_start >= 0
+        }
+        for r in r1_matched:
             out_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in matched_mate_coords:
+                out_bam.write(r)
+
+    if unmatched_bam is not None and r1_unmatched:
+        unmatched_mate_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in r1_unmatched
+            if r.next_reference_id is not None and r.next_reference_start is not None
+               and r.next_reference_id >= 0 and r.next_reference_start >= 0
+        } - matched_mate_coords
+        for r in r1_unmatched:
+            unmatched_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
+                unmatched_bam.write(r)
 
 
 def run_select(args):
@@ -772,26 +840,40 @@ def run_select(args):
                 out_path = _merge_output_path(in_path, args, out_fmt)
                 in_bam, out_bam = open_alignment_files(
                     actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
+                unmatched_bam = None
+                if args.unmatched:
+                    unmatched_path = _unmatched_merge_output_path(in_path, out_fmt)
+                    unmatched_bam = _open_unmatched_bam(
+                        unmatched_path, in_bam, out_fmt, args.threads, args.reference)
                 try:
                     if args.paired:
-                        process_select_merge_pe(in_bam, out_bam, specs)
+                        process_select_merge_pe(in_bam, out_bam, specs, unmatched_bam)
                     else:
-                        process_select_merge_se(in_bam, out_bam, specs)
+                        process_select_merge_se(in_bam, out_bam, specs, unmatched_bam)
                 finally:
                     out_bam.close()
+                    if unmatched_bam:
+                        unmatched_bam.close()
                     in_bam.close()
             else:
                 for spec in specs:
                     out_path = _select_output_path(in_path, spec, args, out_fmt)
                     in_bam, out_bam = open_alignment_files(
                         actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
+                    unmatched_bam = None
+                    if args.unmatched:
+                        unmatched_path = _unmatched_output_path(in_path, spec, out_fmt)
+                        unmatched_bam = _open_unmatched_bam(
+                            unmatched_path, in_bam, out_fmt, args.threads, args.reference)
                     try:
                         if args.paired:
-                            process_select_pe(in_bam, out_bam, spec)
+                            process_select_pe(in_bam, out_bam, spec, unmatched_bam)
                         else:
-                            process_select_se(in_bam, out_bam, spec)
+                            process_select_se(in_bam, out_bam, spec, unmatched_bam)
                     finally:
                         out_bam.close()
+                        if unmatched_bam:
+                            unmatched_bam.close()
                         in_bam.close()
         finally:
             for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
