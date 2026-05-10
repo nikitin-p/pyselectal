@@ -158,7 +158,7 @@ Examples:
 
 `-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`--unmatched` — Write alignments that do not match any spec to a separate auto-named file. Without `--merge`: `{stem}_{spec}_unmatched{ext}` per spec. With `--merge`: `{stem}_unmatched{ext}`. Only valid with `--select`. Not affected by `-o`.
+`--unmatched` — Write alignments that do not match any spec to a separate auto-named file. Without `--merge`: `{stem}_{spec}_unmatched{ext}` per spec. With `--merge`: `{stem}_unmatched{ext}`. Only valid with `--select`. Not affected by `-o`. Unmapped reads are always written to the unmatched file, since they have no 5′ end type.
 
 `-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
 

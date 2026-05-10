@@ -607,28 +607,28 @@ class TestUnmatched:
         os.chdir(str(tmp_path))
         out = str(tmp_path / "out.bam")
         main(["-i", SE_BAM, "-s", "1Sg", "--unmatched", "-o", out])
-        unmatched = str(tmp_path / "test_softclip_se_1sg_unmatched.bam")
+        unmatched = str(tmp_path / "test_softclip_se_unmatched.bam")
         assert os.path.exists(unmatched)
         assert _count_reads_in_bam(out) == 3
         assert _count_reads_in_bam(unmatched) == 7
 
     def test_se_unmatched_multi_spec_naming(self, tmp_path):
-        """Multi-spec without --merge: one unmatched file per spec."""
+        """Multi-spec without --merge: exactly one unmatched file for reads matching no spec."""
         os.chdir(str(tmp_path))
         main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "--unmatched"])
-        um1 = str(tmp_path / "test_softclip_se_1sg_unmatched.bam")
-        um2 = str(tmp_path / "test_softclip_se_2sgg_unmatched.bam")
-        assert os.path.exists(um1)
-        assert os.path.exists(um2)
-        assert _count_reads_in_bam(um1) == 7
-        assert _count_reads_in_bam(um2) == 7
+        um = str(tmp_path / "test_softclip_se_unmatched.bam")
+        assert os.path.exists(um)
+        assert not os.path.exists(str(tmp_path / "test_softclip_se_1sg_unmatched.bam"))
+        assert not os.path.exists(str(tmp_path / "test_softclip_se_2sgg_unmatched.bam"))
+        # 1Sg: 3 reads, 2Sgg: 3 reads, no overlap → 4 unmatched out of 10
+        assert _count_reads_in_bam(um) == 4
 
     def test_pe_unmatched_total_preserved(self, tmp_path):
         """PE --unmatched: matched + unmatched pairs equal total reads."""
         os.chdir(str(tmp_path))
         out = str(tmp_path / "out.bam")
         main(["-i", PE_BAM, "-s", "1Sg", "-p", "-n", "--unmatched", "-o", out])
-        unmatched = str(tmp_path / "test_softclip_pe_1sg_unmatched.bam")
+        unmatched = str(tmp_path / "test_softclip_pe_unmatched.bam")
         assert os.path.exists(unmatched)
         total = _count_reads_in_bam(PE_BAM)
         assert _count_reads_in_bam(out) + _count_reads_in_bam(unmatched) == total

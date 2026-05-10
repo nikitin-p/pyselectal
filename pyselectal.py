@@ -682,12 +682,100 @@ def _flush_pe_group(records, spec, out_bam, unmatched_bam=None):
                 unmatched_bam.write(r)
 
 
+def process_select_multi_se(in_bam, spec_out_pairs, unmatched_bam=None):
+    """Single-pass SE select across multiple specs; writes each alignment to all matching outputs.
+
+    Alignments matching no spec are written to unmatched_bam (if provided).
+    """
+    for aln in in_bam.fetch(until_eof=True):
+        matched_any = False
+        for spec, out_bam in spec_out_pairs:
+            if spec_matches_aln(aln, spec):
+                out_bam.write(aln)
+                matched_any = True
+        if not matched_any and unmatched_bam is not None:
+            unmatched_bam.write(aln)
+
+
+def _flush_pe_group_multi(records, spec_out_pairs, unmatched_bam=None):
+    """Route a PE query-name group across multiple specs; one unmatched file for R1s matching no spec."""
+    if not records:
+        return
+
+    # Classify each R1: which out_bams does it match?
+    r1_classified = []   # list of (r1, [out_bam, ...])
+    r1_unmatched_list = []
+
+    for r in records:
+        if r.is_read1:
+            matched_outs = [ob for spec, ob in spec_out_pairs if spec_matches_aln(r, spec)]
+            if matched_outs:
+                r1_classified.append((r, matched_outs))
+            elif unmatched_bam is not None:
+                r1_unmatched_list.append(r)
+
+    # Per-out_bam mate coord sets; track all coords claimed by any matched R1.
+    out_mate_coords = {}  # id(out_bam) -> (out_bam, set of (ref_id, ref_start))
+    all_matched_mate_coords = set()
+
+    for r1, matched_outs in r1_classified:
+        valid = (r1.next_reference_id is not None and r1.next_reference_id >= 0
+                 and r1.next_reference_start is not None and r1.next_reference_start >= 0)
+        coord = (r1.next_reference_id, r1.next_reference_start)
+        for ob in matched_outs:
+            ob.write(r1)
+            if valid:
+                key = id(ob)
+                if key not in out_mate_coords:
+                    out_mate_coords[key] = (ob, set())
+                out_mate_coords[key][1].add(coord)
+                all_matched_mate_coords.add(coord)
+
+    for r in records:
+        if r.is_read2:
+            coord = (r.reference_id, r.reference_start)
+            for key, (ob, coords) in out_mate_coords.items():
+                if coord in coords:
+                    ob.write(r)
+
+    if unmatched_bam is not None and r1_unmatched_list:
+        unmatched_mate_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in r1_unmatched_list
+            if r.next_reference_id is not None and r.next_reference_id >= 0
+               and r.next_reference_start is not None and r.next_reference_start >= 0
+        } - all_matched_mate_coords
+        for r in r1_unmatched_list:
+            unmatched_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
+                unmatched_bam.write(r)
+
+
+def process_select_multi_pe(in_bam, spec_out_pairs, unmatched_bam=None):
+    """Single-pass PE select across multiple specs."""
+    current_qname = None
+    group = []
+
+    for aln in in_bam.fetch(until_eof=True):
+        name = aln.query_name
+        if name != current_qname:
+            if group:
+                _flush_pe_group_multi(group, spec_out_pairs, unmatched_bam)
+            group = [aln]
+            current_qname = name
+        else:
+            group.append(aln)
+    if group:
+        _flush_pe_group_multi(group, spec_out_pairs, unmatched_bam)
+
+
 def _select_output_path(in_path, spec, args, out_fmt):
     """Determine output path for a --select run."""
     if args.output:
         return args.output
     specs = [s.strip() for s in args.select.split(",") if s.strip()]
-    if len(args.input_files) == 1 and len(specs) == 1:
+    if len(args.input_files) == 1 and len(specs) == 1 and not args.unmatched:
         return "-"  # stdout
     stem = os.path.splitext(os.path.basename(in_path))[0]
     return f"{stem}_{spec['raw']}{_fmt_ext(out_fmt)}"
@@ -701,14 +789,8 @@ def _merge_output_path(in_path, args, out_fmt):
     return f"{stem}_merged{_fmt_ext(out_fmt)}"
 
 
-def _unmatched_output_path(in_path, spec, out_fmt):
-    """Auto-named unmatched file for a single spec: {stem}_{spec}_unmatched{ext}."""
-    stem = os.path.splitext(os.path.basename(in_path))[0]
-    return f"{stem}_{spec['raw']}_unmatched{_fmt_ext(out_fmt)}"
-
-
 def _unmatched_merge_output_path(in_path, out_fmt):
-    """Auto-named unmatched file for --merge: {stem}_unmatched{ext}."""
+    """Auto-named unmatched file: {stem}_unmatched{ext}."""
     stem = os.path.splitext(os.path.basename(in_path))[0]
     return f"{stem}_unmatched{_fmt_ext(out_fmt)}"
 
@@ -855,25 +937,45 @@ def run_select(args):
                     if unmatched_bam:
                         unmatched_bam.close()
                     in_bam.close()
+            elif args.unmatched:
+                # Single pass: all specs + one unmatched file for reads matching no spec.
+                spec_out_pairs = []
+                unmatched_bam = None
+                first_out_path = _select_output_path(in_path, specs[0], args, out_fmt)
+                in_bam, first_out_bam = open_alignment_files(
+                    actual_in, first_out_path, args.threads, in_fmt, out_fmt, args.reference)
+                spec_out_pairs.append((specs[0], first_out_bam))
+                try:
+                    for spec in specs[1:]:
+                        out_path = _select_output_path(in_path, spec, args, out_fmt)
+                        spec_out_pairs.append(
+                            (spec, _open_unmatched_bam(out_path, in_bam, out_fmt,
+                                                       args.threads, args.reference)))
+                    unmatched_path = _unmatched_merge_output_path(in_path, out_fmt)
+                    unmatched_bam = _open_unmatched_bam(
+                        unmatched_path, in_bam, out_fmt, args.threads, args.reference)
+                    if args.paired:
+                        process_select_multi_pe(in_bam, spec_out_pairs, unmatched_bam)
+                    else:
+                        process_select_multi_se(in_bam, spec_out_pairs, unmatched_bam)
+                finally:
+                    for _, ob in spec_out_pairs:
+                        ob.close()
+                    if unmatched_bam:
+                        unmatched_bam.close()
+                    in_bam.close()
             else:
                 for spec in specs:
                     out_path = _select_output_path(in_path, spec, args, out_fmt)
                     in_bam, out_bam = open_alignment_files(
                         actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
-                    unmatched_bam = None
-                    if args.unmatched:
-                        unmatched_path = _unmatched_output_path(in_path, spec, out_fmt)
-                        unmatched_bam = _open_unmatched_bam(
-                            unmatched_path, in_bam, out_fmt, args.threads, args.reference)
                     try:
                         if args.paired:
-                            process_select_pe(in_bam, out_bam, spec, unmatched_bam)
+                            process_select_pe(in_bam, out_bam, spec)
                         else:
-                            process_select_se(in_bam, out_bam, spec, unmatched_bam)
+                            process_select_se(in_bam, out_bam, spec)
                     finally:
                         out_bam.close()
-                        if unmatched_bam:
-                            unmatched_bam.close()
                         in_bam.close()
         finally:
             for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
