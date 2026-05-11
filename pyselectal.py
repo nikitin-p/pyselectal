@@ -29,7 +29,7 @@ Options:
   -v, --version                  Print version and exit
 
 5' end type notation (for --select):
-  [n[..m]]<S|M>[regex]    case-insensitive
+  [n|n..|..m|n..m]<S|M>[regex]    case-insensitive; <> = required
 
   Length constraints:
     S, M         any soft-clipped / mapped 5' end
@@ -361,7 +361,7 @@ def parse_spec(spec_str):
     """
     Parse a 5' end type spec into a structured dict.
 
-    Grammar: [n[.m]]<S|M>[seq]   (case-insensitive)
+    Grammar: [n|n..|..m|n..m]<S|M>[regex]   (case-insensitive; <> = required)
 
     Returns dict with keys: type, n, m, seq, raw.
     """

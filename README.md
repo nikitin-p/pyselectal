@@ -122,7 +122,7 @@ Modes are mutually exclusive, and setting exactly one is required. In the output
 
 ### Spec grammar
 
-A spec describes a 5′ end type as `[n[..m]]<S|M>[regex]` (case-insensitive):
+A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[regex]` (case-insensitive; `<>` = required):
 
 | Part | Meaning |
 | --- | --- |
