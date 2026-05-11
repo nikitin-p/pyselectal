@@ -17,6 +17,7 @@ Options:
   -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
   --unmatched                    Write non-matching alignments to a separate file
+  --exclude                      Invert selection: output alignments matching none of the specs
   -n, --name                     Name-sort input internally
   -t, --threads N                BGZF threads (default: 1)
   -p, --paired                   Paired-end mode
@@ -472,6 +473,8 @@ def parse_args(argv):
                         help="Merge multiple --select specs into one output file.")
     parser.add_argument("--unmatched", action="store_true",
                         help="Write non-matching alignments to a separate auto-named file.")
+    parser.add_argument("--exclude", action="store_true",
+                        help="Invert selection: output alignments matching none of the specs.")
     parser.add_argument("-n", "--name", action="store_true",
                         help="Name-sort input BAM internally (pysam.sort -n).")
     parser.add_argument("-t", "--threads", type=int, default=1,
@@ -535,6 +538,14 @@ def parse_args(argv):
     # --unmatched only with --select
     if args.unmatched and args.select is None:
         parser.error("--unmatched can only be used with -s/--select.")
+
+    # --exclude only with --select; incompatible with --merge and --unmatched
+    if args.exclude and args.select is None:
+        parser.error("--exclude can only be used with -s/--select.")
+    if args.exclude and args.merge:
+        parser.error("--exclude and --merge are mutually exclusive.")
+    if args.exclude and args.unmatched:
+        parser.error("--exclude and --unmatched are mutually exclusive.")
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
@@ -883,6 +894,81 @@ def _flush_pe_group_merge(records, specs, out_bam, unmatched_bam=None):
                 unmatched_bam.write(r)
 
 
+def _exclude_output_path(in_path, args, out_fmt):
+    """Determine output path for a --select --exclude run."""
+    if args.output:
+        return args.output
+    if len(args.input_files) == 1:
+        return "-"  # stdout
+    stem = os.path.splitext(os.path.basename(in_path))[0]
+    return f"{stem}_excluded{_fmt_ext(out_fmt)}"
+
+
+def process_exclude_se(in_bam, out_bam, specs):
+    """Single-end --exclude: write alignments matching none of the specs."""
+    for aln in in_bam.fetch(until_eof=True):
+        if not any(spec_matches_aln(aln, spec) for spec in specs):
+            out_bam.write(aln)
+
+
+def _flush_pe_group_exclude(records, specs, out_bam):
+    """Exclude PE group: emit R1s matching no spec and their R2 mates.
+
+    R2s already claimed by a matched R1 are not re-emitted, preventing
+    double-counting when an R2 has both a matching and a non-matching R1.
+    """
+    if not records:
+        return
+
+    excluded_r1s = []
+    matched_mate_coords = set()
+    for r in records:
+        if not r.is_read1:
+            continue
+        if any(spec_matches_aln(r, spec) for spec in specs):
+            if (r.next_reference_id is not None and r.next_reference_start is not None
+                    and r.next_reference_id >= 0 and r.next_reference_start >= 0):
+                matched_mate_coords.add((r.next_reference_id, r.next_reference_start))
+        else:
+            excluded_r1s.append(r)
+
+    if not excluded_r1s:
+        return
+
+    excluded_mate_coords = {
+        (r.next_reference_id, r.next_reference_start)
+        for r in excluded_r1s
+        if r.next_reference_id is not None and r.next_reference_start is not None
+           and r.next_reference_id >= 0 and r.next_reference_start >= 0
+    } - matched_mate_coords
+    for r in excluded_r1s:
+        out_bam.write(r)
+    for r in records:
+        if r.is_read2 and (r.reference_id, r.reference_start) in excluded_mate_coords:
+            out_bam.write(r)
+
+
+def process_exclude_pe(in_bam, out_bam, specs):
+    """Paired-end --exclude: group by query_name, emit R1s matching no spec."""
+    current_qname = None
+    group = []
+
+    for aln in in_bam.fetch(until_eof=True):
+        qn = aln.query_name
+        if current_qname is None:
+            current_qname = qn
+            group = [aln]
+        elif qn == current_qname:
+            group.append(aln)
+        else:
+            _flush_pe_group_exclude(group, specs, out_bam)
+            current_qname = qn
+            group = [aln]
+
+    if group:
+        _flush_pe_group_exclude(group, specs, out_bam)
+
+
 def run_select(args):
     """Execute --select mode."""
     specs_raw = [s.strip() for s in args.select.split(",") if s.strip()]
@@ -936,6 +1022,18 @@ def run_select(args):
                     out_bam.close()
                     if unmatched_bam:
                         unmatched_bam.close()
+                    in_bam.close()
+            elif args.exclude:
+                out_path = _exclude_output_path(in_path, args, out_fmt)
+                in_bam, out_bam = open_alignment_files(
+                    actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
+                try:
+                    if args.paired:
+                        process_exclude_pe(in_bam, out_bam, specs)
+                    else:
+                        process_exclude_se(in_bam, out_bam, specs)
+                finally:
+                    out_bam.close()
                     in_bam.close()
             elif args.unmatched:
                 # Single pass: all specs + one unmatched file for reads matching no spec.

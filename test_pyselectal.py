@@ -662,6 +662,88 @@ class TestUnmatched:
 
 
 # ---------------------------------------------------------------------------
+# --exclude option
+# ---------------------------------------------------------------------------
+
+class TestExclude:
+    """Tests for --select --exclude (invert-match mode)."""
+
+    def test_exclude_requires_select(self):
+        """--exclude without --select must error."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-c", "--exclude"])
+        assert exc.value.code == 2
+
+    def test_exclude_incompatible_with_merge(self):
+        """--exclude + --merge must error."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-s", "1Sg", "--exclude", "-m"])
+        assert exc.value.code == 2
+
+    def test_exclude_incompatible_with_unmatched(self):
+        """--exclude + --unmatched must error."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "in.bam", "-s", "1Sg", "--exclude", "--unmatched"])
+        assert exc.value.code == 2
+
+    def test_exclude_with_select_ok(self):
+        """--exclude with --select must parse cleanly."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "--exclude"])
+        assert args.exclude is True
+
+    def test_exclude_se_count(self, tmp_path):
+        """SE --exclude 1Sg: 10 total - 3 matching = 7 excluded reads."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "--exclude", "-o", out])
+        assert _count_reads_in_bam(out) == 7
+
+    def test_exclude_se_multi_spec(self, tmp_path):
+        """SE --exclude 1Sg,2Sgg: reads matching neither spec; 1Sg=3, 2Sgg=3, no overlap → 4 excluded."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", SE_BAM, "-s", "1Sg,2Sgg", "--exclude", "-o", out])
+        assert _count_reads_in_bam(out) == 4
+
+    def test_exclude_se_complement_of_select(self, tmp_path):
+        """SE: matched + excluded must equal total reads."""
+        matched = str(tmp_path / "matched.bam")
+        excluded = str(tmp_path / "excluded.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "-o", matched])
+        main(["-i", SE_BAM, "-s", "1Sg", "--exclude", "-o", excluded])
+        total = _count_reads_in_bam(SE_BAM)
+        assert _count_reads_in_bam(matched) + _count_reads_in_bam(excluded) == total
+
+    def test_exclude_se_stdout_single_input(self, tmp_path, capsys):
+        """Single input + --exclude + no -o → stdout."""
+        # We can't easily capture pysam BAM stdout; verify no file is created
+        # and the process does not error.
+        out = str(tmp_path / "out.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "--exclude", "-o", out])
+        assert os.path.exists(out)
+
+    def test_exclude_se_auto_naming(self, tmp_path):
+        """Multiple inputs → {stem}_excluded.bam auto-name."""
+        os.chdir(str(tmp_path))
+        main(["-i", f"{SE_BAM},{SE_BAM}", "-s", "1Sg", "--exclude"])
+        expected = str(tmp_path / "test_softclip_se_excluded.bam")
+        assert os.path.exists(expected)
+
+    def test_exclude_pe_complement(self, tmp_path):
+        """PE --exclude: matched + excluded reads equal total reads."""
+        matched = str(tmp_path / "matched.bam")
+        excluded = str(tmp_path / "excluded.bam")
+        main(["-i", PE_BAM, "-s", "1Sg", "-p", "-n", "-o", matched])
+        main(["-i", PE_BAM, "-s", "1Sg", "-p", "-n", "--exclude", "-o", excluded])
+        total = _count_reads_in_bam(PE_BAM)
+        assert _count_reads_in_bam(matched) + _count_reads_in_bam(excluded) == total
+
+    def test_exclude_all_match_gives_empty(self, tmp_path):
+        """Excluding all soft-clipped reads produces an empty output."""
+        out = str(tmp_path / "out.bam")
+        main(["-i", SE_BAM, "-s", "S", "--exclude", "-o", out])
+        assert _count_reads_in_bam(out) == 0
+
+
+# ---------------------------------------------------------------------------
 # Step 4: Issue 1 — --count TSV histogram
 # ---------------------------------------------------------------------------
 

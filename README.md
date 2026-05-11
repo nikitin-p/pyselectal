@@ -79,7 +79,7 @@ tool_1 | \
   tool_2 > output.file
 ```
 
-The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes; CRAM requires `-r`, see below). When a single input and a single `--select` spec are given without `-o` (see below), output goes to `stdout`.
+The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes; CRAM requires `-r`, see below). Output goes to `stdout` — and the pipe therefore works — only when a single input file and a single `--select` spec are given without `-o`. With multiple specs, output goes to named files on disk instead, and the downstream tool silently receives an empty stream; use `--merge -o -` to pipe the combined result of multiple specs to a downstream tool.
 
 ### Important notes
 
@@ -99,9 +99,10 @@ By default, the output format matches the input format; with multiple input file
 Output file naming depends on the mode:
 
 - `--select`: `{stem}_{spec}.bam` per spec, or `stdout` for single input + single spec;
-- `--select --unmatched`: additionally writes `{stem}_{spec}_unmatched.bam` per spec;
+- `--select --unmatched`: additionally writes `{stem}_unmatched.bam`;
 - `--select --merge`: `{stem}_merged.bam` per input file;
 - `--select --merge --unmatched`: additionally writes `{stem}_unmatched.bam` per input file;
+- `--select --exclude`: `stdout` for single input, or `{stem}_excluded.bam` for multiple inputs;
 - `--count`: `stdout` for single input, or `{stem}_5prime_counts.tsv` per input file;
 - `--all`: `{stem}_{type}.bam` per 5′ end type, per input file.
 
@@ -113,7 +114,7 @@ Use `-o` to override: specify a file path for `--select`, or a directory for `--
 
 Modes are mutually exclusive, and setting exactly one is required. In the output file naming schemes below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`).
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_{spec}_unmatched.bam` per spec, or to `{stem}_unmatched.bam` with `--merge`.
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched.bam`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
 
 `-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
 
@@ -158,7 +159,9 @@ Examples:
 
 `-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`--unmatched` — Write alignments that do not match any spec to a separate auto-named file. Without `--merge`: `{stem}_{spec}_unmatched{ext}` per spec. With `--merge`: `{stem}_unmatched{ext}`. Only valid with `--select`. Not affected by `-o`. Unmapped reads are always written to the unmatched file, since they have no 5′ end type.
+`--unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `--exclude`.
+
+`--exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). With a single input file, output goes to `stdout` (or to `-o FILE`); with multiple input files, output is written to `{stem}_excluded{ext}` per file. Only valid with `--select`. Incompatible with `--merge` and `--unmatched`.
 
 `-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
 
@@ -216,31 +219,43 @@ pyselectal.py -i in.bam --select Mgg > out.bam
 pyselectal.py -i in.bam --select 10..M | samtools view -c
 ```
 
-7. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
+7. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end, writing all remaining alignments to `stdout`:
+
+```bash
+pyselectal.py -i in.bam --select 1Sg --exclude > out.bam
+```
+
+8. Exclude all soft-clipped reads across multiple specs (the complement of all G-cap variants) and write the result to a named file:
+
+```bash
+pyselectal.py -i in.bam --select 1Sg,2Sgg,3Sggg --exclude -o non_gcap.bam
+```
+
+10. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
 
 ```bash
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-8. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
+11. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-9. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files.
+12. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files.
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
 ```
 
-10. Split multiple input files by 5' end type into a shared output directory; each input file generates its own set of type-specific files (e.g., `sample1_1sg.bam`, `sample2_1sg.bam`):
+13. Split multiple input files by 5' end type into a shared output directory; each input file generates its own set of type-specific files (e.g., `sample1_1sg.bam`, `sample2_1sg.bam`):
 
 ```bash
 pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
 ```
 
-11. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
+14. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
 
 ```bash
 samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
