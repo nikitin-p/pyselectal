@@ -660,6 +660,37 @@ class TestUnmatched:
         assert _count_reads_in_bam(merged) > 0
         assert _count_reads_in_bam(unmatched) > 0
 
+    def test_short_u_flag(self):
+        """-u is equivalent to --unmatched."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-u"])
+        assert args.unmatched is True
+
+    def test_unmatched_allows_stdout(self, tmp_path):
+        """Single input + single spec + --unmatched: matched output goes to stdout."""
+        os.chdir(str(tmp_path))
+        out_file = str(tmp_path / "matched.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "-u", "-o", out_file])
+        unmatched = str(tmp_path / "test_softclip_se_unmatched.bam")
+        assert os.path.exists(unmatched)
+        assert _count_reads_in_bam(out_file) == 3
+        assert _count_reads_in_bam(unmatched) == 7
+
+    def test_j_custom_unmatched_file(self, tmp_path):
+        """-j FILE writes unmatched alignments to specified file."""
+        os.chdir(str(tmp_path))
+        custom_unmatched = str(tmp_path / "my_unmatched.bam")
+        out_file = str(tmp_path / "matched.bam")
+        main(["-i", SE_BAM, "-s", "1Sg", "-j", custom_unmatched, "-o", out_file])
+        assert os.path.exists(custom_unmatched)
+        assert _count_reads_in_bam(custom_unmatched) == 7
+        assert not os.path.exists(str(tmp_path / "test_softclip_se_unmatched.bam"))
+
+    def test_j_implies_unmatched(self):
+        """-j FILE implies -u/--unmatched."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-j", "out.bam"])
+        assert args.unmatched is True
+        assert args.unmatched_file == "out.bam"
+
 
 # ---------------------------------------------------------------------------
 # --exclude option
@@ -689,6 +720,11 @@ class TestExclude:
     def test_exclude_with_select_ok(self):
         """--exclude with --select must parse cleanly."""
         args = parse_args(["-i", "in.bam", "-s", "1Sg", "--exclude"])
+        assert args.exclude is True
+
+    def test_short_x_flag(self):
+        """-x is equivalent to --exclude."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-x"])
         assert args.exclude is True
 
     def test_exclude_se_count(self, tmp_path):

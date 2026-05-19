@@ -159,9 +159,11 @@ Examples:
 
 `-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`--unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `--exclude`.
+`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`. Does not prevent main output from going to `stdout`.
 
-`--exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). With a single input file, output goes to `stdout` (or to `-o FILE`); with multiple input files, output is written to `{stem}_excluded{ext}` per file. Only valid with `--select`. Incompatible with `--merge` and `--unmatched`.
+`-j, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
+
+`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). With a single input file, output goes to `stdout` (or to `-o FILE`); with multiple input files, output is written to `{stem}_excluded{ext}` per file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
 
 `-n, --name` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
 
@@ -219,43 +221,56 @@ pyselectal.py -i in.bam --select Mgg > out.bam
 pyselectal.py -i in.bam --select 10..M | samtools view -c
 ```
 
-7. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end, writing all remaining alignments to `stdout`:
+7. Select alignments with 1 soft-clipped G, pipe matched to another tool, and save unmatched to a file:
 
 ```bash
-pyselectal.py -i in.bam --select 1Sg --exclude > out.bam
+pyselectal.py -i in.bam -s 1Sg -u | samtools view -c -
+# matched goes to stdout; unmatched written to in_unmatched.bam
 ```
 
-8. Exclude all soft-clipped reads across multiple specs (the complement of all G-cap variants) and write the result to a named file:
+8. Same as above, but specify a custom filename for unmatched alignments:
 
 ```bash
-pyselectal.py -i in.bam --select 1Sg,2Sgg,3Sggg --exclude -o non_gcap.bam
+pyselectal.py -i in.bam -s 1Sg -j rejected.bam | samtools view -c -
 ```
 
-10. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
+9. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end, writing all remaining alignments to `stdout`:
+
+```bash
+pyselectal.py -i in.bam -s 1Sg -x > out.bam
+```
+
+10. Exclude all soft-clipped reads across multiple specs (the complement of all G-cap variants) and write the result to a named file:
+
+```bash
+pyselectal.py -i in.bam -s 1Sg,2Sgg,3Sggg -x -o non_gcap.bam
+```
+
+11. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
 
 ```bash
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-11. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
+12. Write each alignment to a separate file by its 5′ end type and place the output files into `out_dir/`. By default, types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-12. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files.
+13. As above, but 5' end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files.
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
 ```
 
-13. Split multiple input files by 5' end type into a shared output directory; each input file generates its own set of type-specific files (e.g., `sample1_1sg.bam`, `sample2_1sg.bam`):
+14. Split multiple input files by 5' end type into a shared output directory; each input file generates its own set of type-specific files (e.g., `sample1_1sg.bam`, `sample2_1sg.bam`):
 
 ```bash
 pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
 ```
 
-14. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
+15. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
 
 ```bash
 samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
