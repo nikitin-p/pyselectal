@@ -132,7 +132,9 @@ A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[regex]` (case-insensi
 | `n..m` | Between n and m bases (inclusive) |
 | `n..` | At least n bases |
 | `..m` | At most m bases |
-| `regex` | Python regex pattern matched via `re.fullmatch()` |
+| `regex` | Regex pattern using Python `re` module syntax, matched via `re.fullmatch()` |
+
+The regex must follow Python's [`re` module syntax](https://docs.python.org/3/library/re.html#regular-expression-syntax). Use `+` for one-or-more, `*` for zero-or-more, `.` for any character, `[acgt]` for character classes, etc. The entire extracted sequence must match the pattern (fullmatch semantics).
 
 Reverse-strand alignments are handled automatically (sequence is reverse-complemented before matching).
 
