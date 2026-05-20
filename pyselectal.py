@@ -30,7 +30,7 @@ Options:
   -v, --version                  Print version and exit
 
 5' end type notation (for --select):
-  [n|n..|..m|n..m]<S|M>[regex]    case-insensitive; <> = required
+  [n|n..|..m|n..m]<S|M>[pattern]  case-insensitive; <> = required
 
   Length constraints:
     S, M         any soft-clipped / mapped 5' end
@@ -358,11 +358,24 @@ def has_5prime_mapped_range(aln, n, m, pattern=None):
     return re.fullmatch(pattern, matched, re.IGNORECASE) is not None
 
 
+REGEX_METACHARACTERS = set('+*.[]()|?{}^$\\')
+
+
+def _is_literal_pattern(pat):
+    """Return True if pattern contains no regex metacharacters."""
+    if not pat:
+        return False
+    return not any(c in REGEX_METACHARACTERS for c in pat)
+
+
 def parse_spec(spec_str):
     """
     Parse a 5' end type spec into a structured dict.
 
-    Grammar: [n|n..|..m|n..m]<S|M>[regex]   (case-insensitive; <> = required)
+    Grammar: [n|n..|..m|n..m]<S|M>[pattern]   (case-insensitive; <> = required)
+
+    If pattern is literal (no regex metacharacters) and no quantifier is given,
+    length is inferred from pattern length: Sg = 1Sg, Sttc = 3Sttc.
 
     Returns dict with keys: type, n, m, seq, raw.
     """
@@ -387,18 +400,14 @@ def parse_spec(spec_str):
         n_val = int(n_str)
         m_val = n_val  # nS or nM without dot = exact
     else:
-        # Bare S or M with no numbers
-        n_val = None
-        m_val = None
-
-    if mode == "S":
-        if n_val is None:
-            # Bare "S[seq]": any softclip
+        # Bare S or M with no numbers — infer from pattern if literal
+        if seq and _is_literal_pattern(seq):
+            n_val = len(seq)
+            m_val = len(seq)
+        elif mode == "S":
             n_val = 1
             m_val = None
-    else:
-        # M mode
-        if n_val is None:
+        else:
             n_val = 0
             m_val = None
 

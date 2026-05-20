@@ -268,13 +268,29 @@ class TestParseSpec:
         assert s["m"] is None
         assert s["seq"] is None
 
-    def test_any_softclip_with_base(self):
-        """St -> any softclip starting with T."""
+    def test_literal_softclip_infers_length(self):
+        """St -> exactly 1 soft-clipped T (literal pattern infers length)."""
         s = parse_spec("St")
         assert s["type"] == "S"
         assert s["n"] == 1
-        assert s["m"] is None
+        assert s["m"] == 1
         assert s["seq"] == "T"
+
+    def test_literal_softclip_multi_char(self):
+        """Sttc -> exactly 3 soft-clipped TTC."""
+        s = parse_spec("Sttc")
+        assert s["type"] == "S"
+        assert s["n"] == 3
+        assert s["m"] == 3
+        assert s["seq"] == "TTC"
+
+    def test_regex_softclip_unbounded(self):
+        """Sg+ -> any softclip matching g+ (regex, n=1, m=None)."""
+        s = parse_spec("Sg+")
+        assert s["type"] == "S"
+        assert s["n"] == 1
+        assert s["m"] is None
+        assert s["seq"] == "G+"
 
     # --- Mapped specs ---
 
@@ -316,13 +332,29 @@ class TestParseSpec:
         assert s["m"] is None
         assert s["seq"] is None
 
-    def test_any_mapped_with_prefix(self):
-        """Mg -> any mapped starting with G."""
+    def test_literal_mapped_infers_length(self):
+        """Mg -> exactly 1 matched G (literal pattern infers length)."""
         s = parse_spec("Mg")
+        assert s["type"] == "M"
+        assert s["n"] == 1
+        assert s["m"] == 1
+        assert s["seq"] == "G"
+
+    def test_literal_mapped_multi_char(self):
+        """Maat -> exactly 3 matched AAT."""
+        s = parse_spec("Maat")
+        assert s["type"] == "M"
+        assert s["n"] == 3
+        assert s["m"] == 3
+        assert s["seq"] == "AAT"
+
+    def test_regex_mapped_unbounded(self):
+        """Mg+ -> any mapped matching g+ (regex, n=0, m=None)."""
+        s = parse_spec("Mg+")
         assert s["type"] == "M"
         assert s["n"] == 0
         assert s["m"] is None
-        assert s["seq"] == "G"
+        assert s["seq"] == "G+"
 
     # --- Case insensitivity ---
 

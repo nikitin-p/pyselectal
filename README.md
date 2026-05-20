@@ -122,7 +122,7 @@ Modes are mutually exclusive, and setting exactly one is required. In the output
 
 ### Spec grammar
 
-A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[regex]` (case-insensitive; `<>` = required):
+A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[pattern]` (case-insensitive; `<>` = required):
 
 | Part | Meaning |
 | --- | --- |
@@ -132,28 +132,41 @@ A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[regex]` (case-insensi
 | `n..m` | Between n and m bases (inclusive) |
 | `n..` | At least n bases |
 | `..m` | At most m bases |
-| `regex` | Regex pattern using Python `re` module syntax, matched via `re.fullmatch()` |
+| `pattern` | Sequence pattern (literal or Python regex, matched via `re.fullmatch()`) |
 
-The regex must follow Python's [`re` module syntax](https://docs.python.org/3/library/re.html#regular-expression-syntax). Use `+` for one-or-more, `*` for zero-or-more, `.` for any character, `[acgt]` for character classes, etc. The entire extracted sequence must match the pattern (fullmatch semantics).
+The pattern can be a literal sequence (`g`, `ttc`) or use Python [`re` module syntax](https://docs.python.org/3/library/re.html#regular-expression-syntax) (`g+`, `g.c`, `[acgt]+`). The entire extracted sequence must match the pattern (fullmatch semantics).
 
 Reverse-strand alignments are handled automatically (sequence is reverse-complemented before matching).
+
+If the pattern is a literal (no regex metacharacters), the length is inferred from the pattern itself — `Sg` equals `1Sg`, `Sttc` equals `3Sttc`. When the pattern contains regex metacharacters (`+`, `*`, `.`, `[]`, etc.), an explicit length quantifier controls the match range.
 
 Examples:
 
 | Spec | Meaning |
 | --- | --- |
-| `1Sg` | Exactly 1 soft-clipped G |
-| `3Sggg` | Exactly 3 soft-clipped GGG |
-| `3..Sg+` | 3+ soft-clipped G-homopolymer (via `g+` regex) |
-| `2..Sgg.*` | 2+ soft-clipped bases starting with GG (via `gg.*` regex) |
-| `1..3S` | 1–3 soft-clipped bases (any sequence) |
 | `S` | Any soft-clipped 5′ end |
-| `3Mggg` | Exactly 3 matched GGG |
-| `3..Mg+` | 3+ matched G-homopolymer |
-| `2..3Ma.*` | 2–3 matched bases starting with A (via `a.*` regex) |
-| `2..M` | 2+ matched bases |
-| `Sg.c` | Soft-clipped gac, ggc, gcc, gtc |
 | `M` | Any mapped 5′ end |
+| `2S` | Any 2 soft-clipped bases |
+| `3M` | Any 3 matched bases |
+| `2..5S` | 2–5 soft-clipped bases |
+| `3..M` | 3+ matched bases |
+| `..4S` | Up to 4 soft-clipped bases (inclusive) |
+| `Sg` | Exactly 1 soft-clipped G (equals `1Sg`) |
+| `Ma` | Exactly 1 matched A (equals `1Ma`) |
+| `Sttc` | Exactly 3 soft-clipped TTC (equals `3Sttc`) |
+| `Maat` | Exactly 3 matched AAT (equals `3Maat`) |
+| `2Ma` | Empty — pattern `a` is 1 base but 2 required |
+| `2..3Sa` | Empty — pattern `a` is 1 base but 2–3 required |
+| `2..3Saa` | Equals `Saa` — quantifier redundant with fixed-length literal |
+| `Sg+` | Soft-clipped G-homopolymer of any length |
+| `..5Sg+` | Soft-clipped G-homopolymer of length 1–5 |
+| `Mac+t` | Matched 5′ end matching `ac+t`: act, acct, accct, … |
+| `..4Mac+t` | Only act and acct (length ≤ 4) |
+| `Sg.c` | Soft-clipped gac, ggc, gcc, gtc (`.` = any char) |
+| `4Sg.c` | Empty — regex `g.c` matches length 3, but 4 required |
+| `Sg[ga]c` | Soft-clipped ggc or gac (`[ga]` = character class) |
+| `3..4Sca+g` | Soft-clipped caag or caaag (length 4 from `ca+g`) |
+| `4Sca+g` | Only scaag (exactly 4 bases matching `ca+g`) |
 
 ## Optional arguments
 
