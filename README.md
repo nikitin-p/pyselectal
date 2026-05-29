@@ -203,7 +203,7 @@ Examples:
 1. Select paired-end alignments where R1 has exactly 1 soft-clipped `G` at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
 
 ```bash
-pyselectal.py -i in.bam --select 1Sg --paired --name -o out.bam
+pyselectal.py -i in.bam --select Sg --paired --name -o out.bam
 ```
 
 2. Select single-end alignments with 1–3 soft-clipped bases starting with `G` at the 5′ end:
@@ -215,13 +215,13 @@ pyselectal.py -i in.bam --select 1..3Sg.* -o out.bam
 3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T`, or exactly 2 soft-clipped `G`s, or with a mapped 5' end, at the 5′ end and put the selected alignments in the respective output BAM files (one per 5' end type):
 
 ```bash
-pyselectal.py -i in.bam --select 1Sa,1Sc,1St,2Sgg,M
+pyselectal.py -i in.bam --select Sa,Sc,St,Sgg,M
 ```
 
 4. Select single-end alignments with either one or two `G` bases soft-clipped at the 5' end and write all selected alignments into one output file:
 
 ```bash
-pyselectal.py -i in.bam --select 1Sg,2Sgg --merge -o out.bam
+pyselectal.py -i in.bam --select Sg,Sgg --merge -o out.bam
 ```
 
 5. Select single-end alignments with a mapped 5′ end starting with `GG` (single input + single spec outputs to stdout):
@@ -239,26 +239,26 @@ pyselectal.py -i in.bam --select 10..M | samtools view -c
 7. Select alignments with 1 soft-clipped G, pipe matched to another tool, and save unmatched to a file:
 
 ```bash
-pyselectal.py -i in.bam -s 1Sg -u | samtools view -c -
+pyselectal.py -i in.bam -s Sg -u | samtools view -c -
 # matched goes to stdout; unmatched written to in_unmatched.bam
 ```
 
 8. Same as above, but specify a custom filename for unmatched alignments:
 
 ```bash
-pyselectal.py -i in.bam -s 1Sg -j rejected.bam | samtools view -c -
+pyselectal.py -i in.bam -s Sg -j rejected.bam | samtools view -c -
 ```
 
 9. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end, writing all remaining alignments to `stdout`:
 
 ```bash
-pyselectal.py -i in.bam -s 1Sg -x > out.bam
+pyselectal.py -i in.bam -s Sg -x > out.bam
 ```
 
 10. Exclude all soft-clipped reads across multiple specs (the complement of all G-cap variants) and write the result to a named file:
 
 ```bash
-pyselectal.py -i in.bam -s 1Sg,2Sgg,3Sggg -x -o non_gcap.bam
+pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x -o non_gcap.bam
 ```
 
 11. Count all 5′ end types present in the input file and generate the corresponding TSV histogram. By default, types accounting for less than 1% of alignments are collapsed into a single "other" row:
@@ -288,7 +288,7 @@ pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
 15. Pipe a CRAM stream into `pyselectal` (convert BAM to CRAM, then filter):
 
 ```bash
-samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select 1Sg -r ref.fa -o out.bam
+samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select Sg -r ref.fa -o out.bam
 ```
 
 ## Test data
