@@ -96,6 +96,8 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 
 By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
 
+In the output naming patterns below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`), and `{ext}` refers to the output file extension (`.bam`, `.sam`, or `.cram`).
+
 Output file naming depends on the mode:
 
 - `--select`: `{stem}_{spec}.bam` per spec, or `stdout` for single input + single spec;
@@ -112,7 +114,9 @@ Use `-o` to override: specify a file path for `--select`, or a directory for `--
 
 ### Definitions
 
-Modes are mutually exclusive, and setting exactly one is required. In the output file naming schemes below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`).
+A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `1Sg` (1 soft-clipped G), `2Sgg` (2 soft-clipped Gs), or `75Mgaggg` (75 matched bases starting with GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+
+Modes are mutually exclusive, and setting exactly one is required.
 
 `-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched.bam`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
 
