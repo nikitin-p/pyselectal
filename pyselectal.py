@@ -606,7 +606,7 @@ def open_alignment_files(in_path, out_path, threads,
                          in_fmt='bam', out_fmt='bam', reference=None):
     """Open input and output alignment files with format and CRAM-reference support.
 
-    in_path/out_path may be '-' for stdin/stdout.
+    in_path may be '-' for stdin.
     """
     read_mode  = _pysam_read_mode(in_fmt)
     write_mode = _pysam_write_mode(out_fmt)
@@ -629,10 +629,7 @@ def open_alignment_files(in_path, out_path, threads,
         if out_fmt == 'cram' and reference:
             kw_out['reference_filename'] = reference
 
-        if out_path == "-":
-            out_bam = pysam.AlignmentFile(sys.stdout.buffer, write_mode, **kw_out)
-        else:
-            out_bam = pysam.AlignmentFile(out_path, write_mode, **kw_out)
+        out_bam = pysam.AlignmentFile(out_path, write_mode, **kw_out)
     except Exception as e:
         die(f"Failed to open alignment files: {e}")
     return in_bam, out_bam
@@ -801,9 +798,6 @@ def _select_output_path(in_path, spec, args, out_fmt):
     """Determine output path for a --select run."""
     if args.output:
         return args.output
-    specs = [s.strip() for s in args.select.split(",") if s.strip()]
-    if len(args.input_files) == 1 and len(specs) == 1:
-        return "-"  # stdout
     stem = os.path.splitext(os.path.basename(in_path))[0]
     return f"{stem}_{spec['raw']}{_fmt_ext(out_fmt)}"
 
@@ -914,8 +908,6 @@ def _exclude_output_path(in_path, args, out_fmt):
     """Determine output path for a --select --exclude run."""
     if args.output:
         return args.output
-    if len(args.input_files) == 1:
-        return "-"  # stdout
     stem = os.path.splitext(os.path.basename(in_path))[0]
     return f"{stem}_excluded{_fmt_ext(out_fmt)}"
 
@@ -1106,8 +1098,6 @@ def _count_output_path(in_path, args):
     """Determine output path for a --count run."""
     if args.output:
         return args.output
-    if len(args.input_files) == 1:
-        return "-"  # stdout
     stem = os.path.splitext(os.path.basename(in_path))[0]
     return f"{stem}_5prime_counts.tsv"
 
@@ -1160,11 +1150,7 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
                 main_items.append((t, c))
         main_rows = sorted(main_items, key=lambda x: (-x[1], x[0]))
 
-    if out_path == "-":
-        f = sys.stdout
-    else:
-        f = open(out_path, "w")
-    try:
+    with open(out_path, "w") as f:
         f.write("type\tcount\n")
         for t, c in main_rows:
             f.write(f"{t}\t{c}\n")
@@ -1174,9 +1160,6 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
         if other_m_count > 0:
             label = f"other_mapped (<{collapse_threshold:g}%)"
             f.write(f"{label}\t{other_m_count}\n")
-    finally:
-        if out_path != "-":
-            f.close()
 
 
 def run_count(args):

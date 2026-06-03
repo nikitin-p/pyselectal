@@ -2,17 +2,8 @@
 
 Pyselectal (Python selection of alignments) is a Python script for filtering alignments in BAM, SAM and CRAM formats by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines.
 
-**Version 3.0**
-
-### Changelog
-
-- **v3.0** — Range notation changed from `.` to `..`; sequence matching now uses Python regex (`re.fullmatch()`).
-- **v2.0** — New CLI with `--select`, `--count`, `--all` modes; spec grammar; SAM/CRAM support; paired-end mode.
-- **v1.0** — Initial release with basic soft-clip filtering.
-
 ## Contents
 
-- [Changelog](#changelog)
 - [Concept and motivation](#concept-and-motivation)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -71,15 +62,13 @@ pyselectal.py -i FILE[,FILE,...] <mode> [optional arguments]
 
 Input is indicated by the mandatory `-i` option and consists of one alignment file or several files separated by commas. `<mode>` is also mandatory and specifies the mode of action (`--select`, `--count`, or `--all`; see below). Exactly one mode must be set. Additionally, you can provide optional arguments, including the name of the output file or directory. See the description of optional arguments below.
 
-You can also use `pyselectal` with a pipe:
+You can also read from `stdin`:
 
 ```bash
-tool_1 | \
-  pyselectal.py -i - <mode> [optional arguments] | \
-  tool_2 > output.file
+tool_1 | pyselectal.py -i - <mode> [optional arguments]
 ```
 
-The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by [magic bytes](https://en.wikipedia.org/wiki/Magic_number_(programming)#In_files); CRAM requires `-r`, see below). Output goes to `stdout` — and the pipe therefore works — only when a single input file and a single `--select` spec are given without `-o`. With multiple specs, output goes to named files on disk instead, and the downstream tool silently receives an empty stream; use `--merge -o -` to pipe the combined result of multiple specs to a downstream tool.
+The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by [magic bytes](https://en.wikipedia.org/wiki/Magic_number_(programming)#In_files); CRAM requires `-r`, see below). Output always goes to named files on disk.
 
 ### Important notes
 
@@ -100,13 +89,13 @@ In the output naming patterns below, `{stem}` refers to the input filename witho
 
 Output file naming depends on the mode:
 
-- `--select`: `{stem}_{spec}.bam` per spec, or `stdout` for single input + single spec;
-- `--select --unmatched`: additionally writes `{stem}_unmatched.bam`;
-- `--select --merge`: `{stem}_merged.bam` per input file;
-- `--select --merge --unmatched`: additionally writes `{stem}_unmatched.bam` per input file;
-- `--select --exclude`: `stdout` for single input, or `{stem}_excluded.bam` for multiple inputs;
-- `--count`: `stdout` for single input, or `{stem}_5prime_counts.tsv` per input file;
-- `--all`: `{stem}_{type}.bam` per 5′ end type, per input file.
+- `--select`: `{stem}_{spec}{ext}` per spec;
+- `--select --unmatched`: additionally writes `{stem}_unmatched{ext}`;
+- `--select --merge`: `{stem}_merged{ext}` per input file;
+- `--select --merge --unmatched`: additionally writes `{stem}_unmatched{ext}` per input file;
+- `--select --exclude`: `{stem}_excluded{ext}` per input file;
+- `--count`: `{stem}_5prime_counts.tsv` per input file;
+- `--all`: `{stem}_{type}{ext}` per 5′ end type, per input file.
 
 Use `-o` to override: specify a file path for `--select`, or a directory for `--all`.
 
@@ -118,9 +107,9 @@ A **5′ type** is a string that describes the exact 5′-end structure of an al
 
 Modes are mutually exclusive, and setting exactly one is required.
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). With a single input file and a single spec, output goes to `stdout`; otherwise, output files are named `{stem}_{spec}.bam`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged.bam`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched.bam`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
 
-`-c, --count` — Scan all alignments and print a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count`. Rows (5' end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows. The output histogram goes to `stdout`, in the case of a single input file, or into `{stem}_5prime_counts.tsv` per input file, for multiple inputs.
+`-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
 
 `-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into `{stem}_other_soft_clipped.bam` (soft-clipped) and `{stem}_other_mapped.bam` (mapped) instead of individual per-type files.
 
@@ -178,11 +167,11 @@ Examples:
 
 `-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`. Does not prevent main output from going to `stdout`.
+`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`.
 
 `-j, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
 
-`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). With a single input file, output goes to `stdout` (or to `-o FILE`); with multiple input files, output is written to `{stem}_excluded{ext}` per file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
+`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Output is written to `{stem}_excluded{ext}` per input file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
 
 `-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, pyselectal name-sorts the input before processing.
 
@@ -228,35 +217,38 @@ pyselectal.py -i in.bam --select Sa,Sc,St,Sgg,M
 pyselectal.py -i in.bam --select Sg,Sgg --merge -o out.bam
 ```
 
-5. Select single-end alignments with a mapped 5′ end starting with `GG` (single input + single spec outputs to stdout):
+5. Select single-end alignments with a mapped 5′ end starting with `GG`:
 
 ```bash
-pyselectal.py -i in.bam --select Mgg > out.bam
+pyselectal.py -i in.bam --select Mgg
+# output: in_mgg.bam
 ```
 
-6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint (stdout piped to another tool):
+6. Select single-end alignments with at least 10 matched bases at the 5′ end, without a sequence constraint, and count them:
 
 ```bash
-pyselectal.py -i in.bam --select 10..M | samtools view -c
+pyselectal.py -i in.bam --select 10..M -o out.bam && samtools view -c out.bam
 ```
 
-7. Select alignments with 1 soft-clipped G, pipe matched to another tool, and save unmatched to a file:
+7. Select alignments with 1 soft-clipped G and save unmatched to a separate file:
 
 ```bash
-pyselectal.py -i in.bam -s Sg -u | samtools view -c -
-# matched goes to stdout; unmatched written to in_unmatched.bam
+pyselectal.py -i in.bam -s Sg -u
+# output: in_sg.bam (matched), in_unmatched.bam (unmatched)
 ```
 
 8. Same as above, but specify a custom filename for unmatched alignments:
 
 ```bash
-pyselectal.py -i in.bam -s Sg -j rejected.bam | samtools view -c -
+pyselectal.py -i in.bam -s Sg -j rejected.bam
+# output: in_sg.bam (matched), rejected.bam (unmatched)
 ```
 
-9. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end, writing all remaining alignments to `stdout`:
+9. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end:
 
 ```bash
-pyselectal.py -i in.bam -s Sg -x > out.bam
+pyselectal.py -i in.bam -s Sg -x
+# output: in_excluded.bam
 ```
 
 10. Exclude all soft-clipped reads across multiple specs (the complement of all G-cap variants) and write the result to a named file:

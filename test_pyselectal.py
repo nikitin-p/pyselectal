@@ -529,8 +529,8 @@ def _count_reads_in_bam(path):
 class TestSelectEndToEnd:
     """End-to-end tests for --select mode."""
 
-    def test_select_single_spec_to_stdout(self, tmp_path):
-        """Single input + single spec -> stdout (captured via redirect)."""
+    def test_select_single_spec_to_file(self, tmp_path):
+        """Single input + single spec -> explicit output file."""
         out = str(tmp_path / "out.bam")
         main(["-i", SE_BAM, "-s", "1Sg", "-o", out])
         assert _count_reads_in_bam(out) == 3
@@ -697,8 +697,8 @@ class TestUnmatched:
         args = parse_args(["-i", "in.bam", "-s", "1Sg", "-u"])
         assert args.unmatched is True
 
-    def test_unmatched_allows_stdout(self, tmp_path):
-        """Single input + single spec + --unmatched: matched output goes to stdout."""
+    def test_unmatched_with_explicit_output(self, tmp_path):
+        """Single input + single spec + --unmatched: matched to -o, unmatched auto-named."""
         os.chdir(str(tmp_path))
         out_file = str(tmp_path / "matched.bam")
         main(["-i", SE_BAM, "-s", "1Sg", "-u", "-o", out_file])
@@ -780,10 +780,8 @@ class TestExclude:
         total = _count_reads_in_bam(SE_BAM)
         assert _count_reads_in_bam(matched) + _count_reads_in_bam(excluded) == total
 
-    def test_exclude_se_stdout_single_input(self, tmp_path, capsys):
-        """Single input + --exclude + no -o → stdout."""
-        # We can't easily capture pysam BAM stdout; verify no file is created
-        # and the process does not error.
+    def test_exclude_se_explicit_output(self, tmp_path):
+        """Single input + --exclude + -o → explicit output file."""
         out = str(tmp_path / "out.bam")
         main(["-i", SE_BAM, "-s", "1Sg", "--exclude", "-o", out])
         assert os.path.exists(out)
@@ -882,14 +880,15 @@ class TestClassify5primeType:
 class TestCountEndToEnd:
     """End-to-end tests for --count mode."""
 
-    def test_count_se_to_stdout(self, tmp_path, capsys):
-        """Single input -> stdout TSV."""
+    def test_count_se_auto_naming(self, tmp_path):
+        """Single input -> auto-named {stem}_5prime_counts.tsv."""
+        os.chdir(str(tmp_path))
         main(["-i", SE_BAM, "-c"])
-        captured = capsys.readouterr()
-        lines = captured.out.strip().split("\n")
-        assert lines[0] == "type\tcount"
-        # 10 alignments, all soft-clipped -> should have entries
-        assert len(lines) > 1
+        out = str(tmp_path / "test_softclip_se_5prime_counts.tsv")
+        assert os.path.exists(out)
+        header, rows = _read_tsv(out)
+        assert header == "type\tcount"
+        assert len(rows) > 0
 
     def test_count_se_to_file(self, tmp_path):
         """With -o, write TSV to file."""
