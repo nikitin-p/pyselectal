@@ -28,13 +28,13 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 
 Pyselectal is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded base `G` added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE, nanoCAGE, CAGEscan and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE ([Shiraki *et al.*, 2003](https://pubmed.ncbi.nlm.nih.gov/14663149/); [Murata *et al.*, 2014](https://pubmed.ncbi.nlm.nih.gov/24927836/)), nanoCAGE ([Salimullah *et al.*, 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC4181851/)), CAGEscan ([Bertin *et al.*, 2017](https://pubmed.ncbi.nlm.nih.gov/28972578/)) and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
 
 ## Requirements
 
 ### Python
 
-- **Python ≥ v3.8** is recommended ([for the best compatibility with modern `pysam`](https://pysam.readthedocs.io/en/latest/release.html)).
+- **Python ≥ v3.8** is recommended ([for the best compatibility with modern *pysam*](https://pysam.readthedocs.io/en/latest/release.html)).
   - **Python ≥ v3.6** is required due to the use of [f-strings](https://peps.python.org/pep-0498/) in the `pyselectal` implementation.
 
 ### Python libraries
@@ -79,7 +79,7 @@ tool_1 | \
   tool_2 > output.file
 ```
 
-The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes; CRAM requires `-r`, see below). Output goes to `stdout` — and the pipe therefore works — only when a single input file and a single `--select` spec are given without `-o`. With multiple specs, output goes to named files on disk instead, and the downstream tool silently receives an empty stream; use `--merge -o -` to pipe the combined result of multiple specs to a downstream tool.
+The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by [magic bytes](https://en.wikipedia.org/wiki/Magic_number_(programming)#In_files); CRAM requires `-r`, see below). Output goes to `stdout` — and the pipe therefore works — only when a single input file and a single `--select` spec are given without `-o`. With multiple specs, output goes to named files on disk instead, and the downstream tool silently receives an empty stream; use `--merge -o -` to pipe the combined result of multiple specs to a downstream tool.
 
 ### Important notes
 
@@ -165,8 +165,8 @@ Examples:
 | `Sg.c` | Soft-clipped gac, ggc, gcc, gtc (`.` = any char) |
 | `4Sg.c` | Empty — regex `g.c` matches length 3, but 4 required |
 | `Sg[ga]c` | Soft-clipped ggc or gac (`[ga]` = character class) |
-| `3..4Sca+g` | Soft-clipped caag or caaag (length 4 from `ca+g`) |
-| `4Sca+g` | Only scaag (exactly 4 bases matching `ca+g`) |
+| `3..4Sca+g` | Soft-clipped cag or caag (length 3–4 from `ca+g`) |
+| `4Sca+g` | Only caag (exactly 4 bases matching `ca+g`) |
 
 ## Optional arguments
 
