@@ -62,17 +62,17 @@ class TestInputFlag:
 
 
 class TestNameSort:
-    def test_name_flag(self):
+    def test_name_sort_flag(self):
         args = parse_args(["-i", "in.bam", "-c", "-n"])
-        assert args.name is True
+        assert args.name_sort is True
 
-    def test_name_long_flag(self):
-        args = parse_args(["-i", "in.bam", "-c", "--name"])
-        assert args.name is True
+    def test_name_sort_long_flag(self):
+        args = parse_args(["-i", "in.bam", "-c", "--name-sort"])
+        assert args.name_sort is True
 
-    def test_name_default_false(self):
+    def test_name_sort_default_false(self):
         args = parse_args(["-i", "in.bam", "-c"])
-        assert args.name is False
+        assert args.name_sort is False
 
 
 class TestOldFlagsRemoved:
