@@ -193,19 +193,19 @@ Examples:
 
 ## Examples
 
-1. Select paired-end alignments where R1 has exactly 1 soft-clipped `G` at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
+1. **SE CAGE:** Select single-end alignments with exactly 1 soft-clipped `G` at the 5′ end (cap-dependent unencoded G):
 
 ```bash
-pyselectal.py -i in.bam --select Sg --paired -o out.bam
+pyselectal.py -i in.bam --select Sg -o out.bam
 ```
 
-2. Select single-end alignments with 1–3 soft-clipped bases starting with `G` at the 5′ end:
+2. **PE CAGEscan:** Select paired-end alignments where R1 has exactly 3 soft-clipped `G`s at the 5′ end; include R2 mates:
 
 ```bash
-pyselectal.py -i in.bam --select 1..3Sg.* -o out.bam
+pyselectal.py -i in.bam --select Sggg --paired -o out.bam
 ```
 
-3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T`, or exactly 2 soft-clipped `G`s, or with a mapped 5' end, at the 5′ end and put the selected alignments in the respective output BAM files (one per 5' end type):
+3. Select single-end alignments with exactly 1 soft-clipped `A`, `C`, or `T`, or exactly 2 soft-clipped `G`s, or with a mapped 5′ end, and put the selected alignments in the respective output BAM files (one per 5′ end type):
 
 ```bash
 pyselectal.py -i in.bam --select Sa,Sc,St,Sgg,M
