@@ -61,18 +61,18 @@ class TestInputFlag:
         assert args.input_files == ["-"]
 
 
-class TestNameSort:
-    def test_name_sort_flag(self):
+class TestNoNameSort:
+    def test_no_name_sort_flag(self):
         args = parse_args(["-i", "in.bam", "-c", "-n"])
-        assert args.name_sort is True
+        assert args.no_name_sort is True
 
-    def test_name_sort_long_flag(self):
-        args = parse_args(["-i", "in.bam", "-c", "--name-sort"])
-        assert args.name_sort is True
+    def test_no_name_sort_long_flag(self):
+        args = parse_args(["-i", "in.bam", "-c", "--no-name-sort"])
+        assert args.no_name_sort is True
 
-    def test_name_sort_default_false(self):
+    def test_no_name_sort_default_false(self):
         args = parse_args(["-i", "in.bam", "-c"])
-        assert args.name_sort is False
+        assert args.no_name_sort is False
 
 
 class TestOldFlagsRemoved:
@@ -560,10 +560,10 @@ class TestSelectEndToEnd:
         # Should have both R1 and R2 reads
         assert count > 0
 
-    def test_select_with_name_sort(self, tmp_path):
-        """--name flag triggers name sorting before PE processing."""
+    def test_select_pe_default_name_sort(self, tmp_path):
+        """PE processing uses name sorting by default."""
         out = str(tmp_path / "out.bam")
-        main(["-i", PE_BAM, "-s", "S", "-p", "-n", "-o", out])
+        main(["-i", PE_BAM, "-s", "S", "-p", "-o", out])
         assert _count_reads_in_bam(out) > 0
 
 
@@ -612,10 +612,10 @@ class TestMergeEndToEnd:
         count = _count_reads_in_bam(out)
         assert count > 0
 
-    def test_merge_pe_with_name_sort(self, tmp_path):
-        """PE merge with --name sort."""
+    def test_merge_pe_default_name_sort(self, tmp_path):
+        """PE merge uses name sorting by default."""
         out = str(tmp_path / "out.bam")
-        main(["-i", PE_BAM, "-s", "S", "-p", "-n", "-m", "-o", out])
+        main(["-i", PE_BAM, "-s", "S", "-p", "-m", "-o", out])
         assert _count_reads_in_bam(out) > 0
 
     def test_merge_single_spec(self, tmp_path):
@@ -1265,10 +1265,10 @@ class TestAllEndToEnd:
         # At least some R2s must have been routed into type files
         assert total_r2 > 0
 
-    def test_all_pe_with_name_sort(self, tmp_path):
-        """PE --all with -n name-sorts before processing."""
+    def test_all_pe_default_name_sort(self, tmp_path):
+        """PE --all uses name sorting by default."""
         os.chdir(str(tmp_path))
-        main(["-i", PE_BAM, "-a", "-p", "-n"])
+        main(["-i", PE_BAM, "-a", "-p"])
         bams = list(tmp_path.glob("test_softclip_pe_*.bam"))
         assert len(bams) > 0
 

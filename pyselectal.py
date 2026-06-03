@@ -19,7 +19,7 @@ Options:
   -u, --unmatched                Write non-matching alignments to a separate auto-named file
   -j, --unmatched-file FILE      Write non-matching alignments to FILE (implies -u)
   -x, --exclude                  Invert selection: output alignments matching none of the specs
-  -n, --name-sort                Name-sort input internally
+  -n, --no-name-sort             Skip internal name sorting (input already name-sorted)
   -t, --threads N                BGZF threads (default: 1)
   -p, --paired                   Paired-end mode
   -S, --sam                      Force SAM output
@@ -487,8 +487,8 @@ def parse_args(argv):
                         help="Write non-matching alignments to FILE (implies -u).")
     parser.add_argument("-x", "--exclude", action="store_true",
                         help="Invert selection: output alignments matching none of the specs.")
-    parser.add_argument("-n", "--name-sort", action="store_true",
-                        help="Name-sort input BAM internally (pysam.sort -n).")
+    parser.add_argument("-n", "--no-name-sort", action="store_true",
+                        help="Skip internal name sorting (use if input is already name-sorted).")
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Number of BGZF threads for pysam I/O.")
     parser.add_argument("-p", "--paired", action="store_true",
@@ -1011,8 +1011,8 @@ def run_select(args):
             if out_fmt == 'cram' and not args.reference:
                 die("CRAM output requires -r/--reference.")
 
-            # Name sort: CRAM must first be converted to BAM
-            if args.name_sort:
+            # Name sort by default; skip if --no-name-sort
+            if not args.no_name_sort:
                 if in_fmt == 'cram':
                     tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
                     actual_in = tmp_cram2bam
@@ -1198,8 +1198,8 @@ def run_count(args):
             if in_fmt == 'cram' and not args.reference:
                 die(f"CRAM input '{in_path}' requires -r/--reference.")
 
-            # Name sort
-            if args.name_sort:
+            # Name sort by default; skip if --no-name-sort
+            if not args.no_name_sort:
                 if in_fmt == 'cram':
                     tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
                     actual_in = tmp_cram2bam
@@ -1354,8 +1354,8 @@ def run_all(args):
             # Attach resolved output format to args so helpers can access it
             args.out_fmt = out_fmt
 
-            # Name sort
-            if args.name_sort:
+            # Name sort by default; skip if --no-name-sort
+            if not args.no_name_sort:
                 if in_fmt == 'cram':
                     tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
                     actual_in = tmp_cram2bam

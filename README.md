@@ -85,7 +85,7 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 
 1. The 3′-end mapping pattern is ignored.
 2. Unmapped alignments are never selected.
-3. For paired-end input, reads must be name-sorted; use `--name-sort` to sort internally if needed.
+3. For paired-end input, reads must be name-sorted; pyselectal name-sorts internally by default (use `--no-name-sort` to skip if input is already sorted).
 4. Multi-mapped reads produce multiple alignments, each processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary) unless studying multi-mappers.
 
 ## Input
@@ -184,7 +184,7 @@ Examples:
 
 `-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). With a single input file, output goes to `stdout` (or to `-o FILE`); with multiple input files, output is written to `{stem}_excluded{ext}` per file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
 
-`-n, --name-sort` — Internally name-sort the input before processing (required for `--paired` if input is not already name-sorted).
+`-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, pyselectal name-sorts the input before processing.
 
 `-t, --threads N` — BGZF compression/decompression threads (default: 1).
 
@@ -207,7 +207,7 @@ Examples:
 1. Select paired-end alignments where R1 has exactly 1 soft-clipped `G` at the 5′ end; include alignments of the R2 mates corresponding to selected R1s:
 
 ```bash
-pyselectal.py -i in.bam --select Sg --paired --name-sort -o out.bam
+pyselectal.py -i in.bam --select Sg --paired -o out.bam
 ```
 
 2. Select single-end alignments with 1–3 soft-clipped bases starting with `G` at the 5′ end:
