@@ -9,7 +9,7 @@ from unittest import mock
 from pyselectal import (
     parse_args, parse_spec, spec_matches_aln, classify_5prime_type, write_count_tsv,
     main, VERSION, _detect_format, _spool_and_detect_stdin,
-    has_5prime_softclip_range, has_5prime_mapped_range,
+    has_5prime_op,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -1539,6 +1539,48 @@ class TestAllCollapse:
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
         mapped_other = os.path.join(out_dir, "test_softclip_se_other_mapped.bam")
         assert not os.path.exists(mapped_other)
+
+    def test_all_collapse_respects_nondefault_mapped_prefix(self, tmp_path):
+        """Rare mapped types must collapse even when --mapped-prefix != 5.
+
+        Pass 1 (counting) and pass 2 (routing) must classify with the same
+        mapped_prefix, otherwise the collapse_types keys never match the
+        routed types and rare M-types are never collapsed.
+        """
+        bam_path = str(tmp_path / "mapped.bam")
+        header = pysam.AlignmentHeader.from_dict({
+            "HD": {"VN": "1.6", "SO": "coordinate"},
+            "SQ": [{"SN": "chr1", "LN": 300}],
+        })
+        with pysam.AlignmentFile(bam_path, "wb", header=header) as dst:
+            def _write(name, cigar, seq):
+                r = pysam.AlignedSegment(header)
+                r.query_name = name
+                r.flag = 0
+                r.reference_id = 0
+                r.reference_start = 10
+                r.mapping_quality = 30
+                r.cigar = cigar
+                r.query_sequence = seq
+                r.query_qualities = pysam.qualitystring_to_array("I" * len(seq))
+                dst.write(r)
+            # 8 reads of type 1Sg (80%) — majority soft-clip
+            for i in range(8):
+                _write(f"SC_{i}", [(4, 1), (0, 75)], "G" + "A" * 75)
+            # 2 rare mapped reads (20%) — 76M with a GGGGG 5' prefix
+            for i in range(2):
+                _write(f"MAP_{i}", [(0, 76)], "G" * 5 + "A" * 71)
+
+        out_dir = str(tmp_path / "split")
+        main(["-i", bam_path, "-a", "--mapped-prefix", "3",
+              "--collapse-threshold", "25", "-o", out_dir])
+
+        mapped_other = os.path.join(out_dir, "mapped_other_mapped.bam")
+        assert os.path.exists(mapped_other), "_other_mapped.bam not created"
+        assert _count_reads_in_bam(mapped_other) == 2
+        # The rare type must not also get its own per-type file.
+        assert not os.path.exists(os.path.join(out_dir, "mapped_76mggggg.bam"))
+        assert not os.path.exists(os.path.join(out_dir, "mapped_76mggg.bam"))
 
 
 # ---------------------------------------------------------------------------

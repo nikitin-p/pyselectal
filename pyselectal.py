@@ -54,6 +54,7 @@ Options:
 """
 
 import argparse
+import contextlib
 import os
 import re
 import sys
@@ -172,15 +173,6 @@ def revcomp(seq: str) -> str:
     return seq.translate(table)[::-1]
 
 
-def comp_base(base: str) -> str:
-    """
-    Complement of a single DNA base (A/C/G/T/N), case-insensitive.
-    """
-    base = base.upper()
-    table = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N"}
-    return table.get(base, "N")
-
-
 def get_5prime_cigar(aln):
     """
     Get the 5'-end CIGAR operation and length, orientation-aware.
@@ -237,71 +229,18 @@ def classify_5prime_type(aln, mapped_prefix=5):
     return None
 
 
-def has_5prime_mapped_exact(aln, n, pattern=None):
-    """Exact mapped mode: require 5' MATCH of exactly n bases.
+def has_5prime_op(aln, op, n, m, pattern=None):
+    """Match a 5' CIGAR op of the given type (SOFT or MATCH) with length in [n, m].
 
-    If pattern is provided, matched sequence must fullmatch the regex.
+    m=None means unbounded; exact length is expressed as n == m. If pattern is
+    provided, the orientation-aware 5' sequence (reverse-complemented for reverse
+    reads) must fullmatch the regex, case-insensitively.
     """
     if aln.is_unmapped:
         return False
 
     op_5p, len_5p = get_5prime_cigar(aln)
-    if op_5p != MATCH:
-        return False
-    if n > 0 and len_5p != n:
-        return False
-
-    if not pattern:
-        return True
-
-    seq = aln.query_sequence
-    if not seq:
-        return False
-
-    x = int(len_5p)
-    if aln.is_reverse:
-        matched = revcomp(seq[-x:])
-    else:
-        matched = seq[:x]
-
-    return re.fullmatch(pattern, matched, re.IGNORECASE) is not None
-
-def has_5prime_softclip_exact(aln, n, pattern=None):
-    """Exact mode: exactly n-bp 5' soft-clip.
-
-    If pattern is provided, soft-clip sequence must fullmatch the regex.
-    """
-    if aln.is_unmapped:
-        return False
-
-    op_5p, len_5p = get_5prime_cigar(aln)
-    if op_5p != SOFT or len_5p != n:
-        return False
-
-    if not pattern:
-        return True
-
-    seq = aln.query_sequence
-    if not seq:
-        return False
-
-    if aln.is_reverse:
-        sc = revcomp(seq[-n:])
-    else:
-        sc = seq[:n]
-
-    return re.fullmatch(pattern, sc, re.IGNORECASE) is not None
-
-def has_5prime_softclip_range(aln, n, m, pattern=None):
-    """Range mode: n <= length <= m (m=None means unbounded).
-
-    If pattern is provided, soft-clip sequence must fullmatch the regex.
-    """
-    if aln.is_unmapped:
-        return False
-
-    op_5p, len_5p = get_5prime_cigar(aln)
-    if op_5p != SOFT:
+    if op_5p != op:
         return False
 
     x = int(len_5p)
@@ -313,49 +252,12 @@ def has_5prime_softclip_range(aln, n, m, pattern=None):
     if not pattern:
         return True
 
-    query = aln.query_sequence
-    if not query:
+    seq = aln.query_sequence
+    if not seq:
         return False
 
-    if aln.is_reverse:
-        sc = revcomp(query[-x:])
-    else:
-        sc = query[:x]
-
-    return re.fullmatch(pattern, sc, re.IGNORECASE) is not None
-
-
-def has_5prime_mapped_range(aln, n, m, pattern=None):
-    """Range mode for mapped 5' ends: n <= length <= m (m=None means unbounded).
-
-    If pattern is provided, matched sequence must fullmatch the regex.
-    """
-    if aln.is_unmapped:
-        return False
-
-    op_5p, len_5p = get_5prime_cigar(aln)
-    if op_5p != MATCH:
-        return False
-
-    x = int(len_5p)
-    if x < n:
-        return False
-    if m is not None and x > m:
-        return False
-
-    if not pattern:
-        return True
-
-    query = aln.query_sequence
-    if not query:
-        return False
-
-    if aln.is_reverse:
-        matched = revcomp(query[-x:])
-    else:
-        matched = query[:x]
-
-    return re.fullmatch(pattern, matched, re.IGNORECASE) is not None
+    s = revcomp(seq[-x:]) if aln.is_reverse else seq[:x]
+    return re.fullmatch(pattern, s, re.IGNORECASE) is not None
 
 
 REGEX_METACHARACTERS = set('+*.[]()|?{}^$\\')
@@ -424,24 +326,13 @@ def parse_spec(spec_str):
 
 
 def spec_matches_aln(aln, spec):
-    """Check if an alignment matches a parsed spec."""
-    if aln.is_unmapped:
-        return False
+    """Check if an alignment matches a parsed spec.
 
-    pattern = spec["seq"]  # now a regex pattern, may be None
-
-    if spec["type"] == "S":
-        n, m = spec["n"], spec["m"]
-        if m is not None and n == m and n > 0:
-            return has_5prime_softclip_exact(aln, n, pattern)
-        else:
-            return has_5prime_softclip_range(aln, n, m, pattern)
-    else:
-        n, m = spec["n"], spec["m"]
-        if m is not None and n == m and n > 0:
-            return has_5prime_mapped_exact(aln, n, pattern)
-        else:
-            return has_5prime_mapped_range(aln, n, m, pattern)
+    Range matching with n == m covers the exact case, so no separate dispatch
+    is needed.
+    """
+    op = SOFT if spec["type"] == "S" else MATCH
+    return has_5prime_op(aln, op, spec["n"], spec["m"], spec["seq"])
 
 
 def parse_args(argv):
@@ -583,7 +474,7 @@ def name_sort_bam(in_bam_path, threads):
     Caller is responsible for cleanup of the returned temp file.
     """
     # Put temp next to output for large files. Using system temp by default.
-    fd, tmp_path = tempfile.mkstemp(prefix="softclip5.namesort.", suffix=".bam")
+    fd, tmp_path = tempfile.mkstemp(prefix="pyselectal.namesort.", suffix=".bam")
     os.close(fd)
 
     try:
@@ -601,6 +492,54 @@ def name_sort_bam(in_bam_path, threads):
         die(f"Failed to name-sort BAM: {e}")
 
     return tmp_path
+
+
+@contextlib.contextmanager
+def prepared_input(in_path, args):
+    """Prepare an input for reading and yield (read_path, read_fmt, out_fmt).
+
+    Handles the setup shared by all three modes: spool stdin and detect its
+    format, validate that CRAM input has a reference, resolve the output format
+    from the *original* input format, and (unless --no-name-sort) convert CRAM
+    to a temp BAM and name-sort to a temp BAM. read_fmt is the format of the
+    yielded read_path ('bam' once sorted). All temp files are removed on exit.
+    """
+    actual_in = in_path
+    tmp_stdin = tmp_cram2bam = tmp_sorted = None
+    try:
+        if in_path == "-":
+            tmp_stdin, in_fmt = _spool_and_detect_stdin()
+            actual_in = tmp_stdin
+        else:
+            in_fmt = _detect_format(in_path)
+
+        if in_fmt == 'cram' and not args.reference:
+            die(f"CRAM input '{in_path}' requires -r/--reference.")
+
+        # Resolve output format from the original input format, before name-sort
+        # rewrites in_fmt to 'bam'.
+        out_fmt = _resolve_out_fmt(in_fmt, args)
+        if out_fmt == 'cram' and not args.reference:
+            die("CRAM output requires -r/--reference.")
+
+        read_fmt = in_fmt
+        if not args.no_name_sort:
+            if in_fmt == 'cram':
+                tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
+                actual_in = tmp_cram2bam
+            tmp_sorted = name_sort_bam(actual_in, args.threads)
+            actual_in = tmp_sorted
+            read_fmt = 'bam'
+
+        yield actual_in, read_fmt, out_fmt
+    finally:
+        for tmp in (tmp_stdin, tmp_cram2bam, tmp_sorted):
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
 
 def open_alignment_files(in_path, out_path, threads,
                          in_fmt='bam', out_fmt='bam', reference=None):
@@ -634,6 +573,90 @@ def open_alignment_files(in_path, out_path, threads,
         die(f"Failed to open alignment files: {e}")
     return in_bam, out_bam
                                                         
+def _iter_pe_groups(in_bam):
+    """Yield lists of alignments grouped by consecutive query_name.
+
+    Assumes the input is name-sorted (the default), so all records for a
+    read pair are adjacent.
+    """
+    current = None
+    group = []
+    for aln in in_bam.fetch(until_eof=True):
+        if aln.query_name != current:
+            if group:
+                yield group
+            group = [aln]
+            current = aln.query_name
+        else:
+            group.append(aln)
+    if group:
+        yield group
+
+
+def _route_pe_group(records, route_r1, unmatched_bam=None):
+    """Route a PE query-name group through a per-R1 routing function.
+
+    route_r1(r1) returns the list of output files the R1 belongs to (empty =
+    no match). Each R1 is written to each of its targets; each R2 mate is
+    written to every output whose R1 claimed it via the mate coordinate. R1s
+    with no target, and their R2 mates not already claimed by a matched R1,
+    go to unmatched_bam.
+
+    Shared by single-spec --select, multi-spec --select, and --merge. Not used
+    by --exclude or --all, whose R2 de-duplication rules differ intentionally.
+    """
+    if not records:
+        return
+
+    classified = []        # [(r1, [out, ...]), ...]
+    unmatched_r1s = []
+    for r in records:
+        if not r.is_read1:
+            continue
+        targets = route_r1(r)
+        if targets:
+            classified.append((r, targets))
+        elif unmatched_bam is not None:
+            unmatched_r1s.append(r)
+
+    out_coords = {}            # id(out) -> (out, {(ref_id, ref_start), ...})
+    all_matched_coords = set()
+    for r1, targets in classified:
+        valid = (r1.next_reference_id is not None and r1.next_reference_id >= 0
+                 and r1.next_reference_start is not None and r1.next_reference_start >= 0)
+        coord = (r1.next_reference_id, r1.next_reference_start)
+        for out in targets:
+            out.write(r1)
+            if valid:
+                key = id(out)
+                if key not in out_coords:
+                    out_coords[key] = (out, set())
+                out_coords[key][1].add(coord)
+                all_matched_coords.add(coord)
+
+    for r in records:
+        if not r.is_read2:
+            continue
+        coord = (r.reference_id, r.reference_start)
+        for out, coords in out_coords.values():
+            if coord in coords:
+                out.write(r)
+
+    if unmatched_bam is not None and unmatched_r1s:
+        # Exclude R2s already claimed by a matched R1 to avoid duplicates.
+        unmatched_coords = {
+            (r.next_reference_id, r.next_reference_start)
+            for r in unmatched_r1s
+            if r.next_reference_id is not None and r.next_reference_id >= 0
+               and r.next_reference_start is not None and r.next_reference_start >= 0
+        } - all_matched_coords
+        for r in unmatched_r1s:
+            unmatched_bam.write(r)
+        for r in records:
+            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_coords:
+                unmatched_bam.write(r)
+
+
 def process_select_se(in_bam, out_bam, spec, unmatched_bam=None):
     """Single-end --select: write alignments matching spec."""
     for aln in in_bam.fetch(until_eof=True):
@@ -645,65 +668,9 @@ def process_select_se(in_bam, out_bam, spec, unmatched_bam=None):
 
 def process_select_pe(in_bam, out_bam, spec, unmatched_bam=None):
     """Paired-end --select: group by query_name, select R1, emit R1+R2."""
-    current_qname = None
-    group = []
-
-    for aln in in_bam.fetch(until_eof=True):
-        qn = aln.query_name
-        if current_qname is None:
-            current_qname = qn
-            group = [aln]
-        elif qn == current_qname:
-            group.append(aln)
-        else:
-            _flush_pe_group(group, spec, out_bam, unmatched_bam)
-            current_qname = qn
-            group = [aln]
-
-    if group:
-        _flush_pe_group(group, spec, out_bam, unmatched_bam)
-
-
-def _flush_pe_group(records, spec, out_bam, unmatched_bam=None):
-    """Select R1s matching spec, then emit their R2 mates; mirror non-matching to unmatched_bam."""
-    if not records:
-        return
-
-    r1_matched, r1_unmatched = [], []
-    for r in records:
-        if r.is_read1:
-            if spec_matches_aln(r, spec):
-                r1_matched.append(r)
-            elif unmatched_bam is not None:
-                r1_unmatched.append(r)
-
-    matched_mate_coords = set()
-    if r1_matched:
-        matched_mate_coords = {
-            (r.next_reference_id, r.next_reference_start)
-            for r in r1_matched
-            if r.next_reference_id is not None and r.next_reference_start is not None
-               and r.next_reference_id >= 0 and r.next_reference_start >= 0
-        }
-        for r in r1_matched:
-            out_bam.write(r)
-        for r in records:
-            if r.is_read2 and (r.reference_id, r.reference_start) in matched_mate_coords:
-                out_bam.write(r)
-
-    if unmatched_bam is not None and r1_unmatched:
-        # Exclude R2s already claimed by a matched R1 to avoid duplicates.
-        unmatched_mate_coords = {
-            (r.next_reference_id, r.next_reference_start)
-            for r in r1_unmatched
-            if r.next_reference_id is not None and r.next_reference_start is not None
-               and r.next_reference_id >= 0 and r.next_reference_start >= 0
-        } - matched_mate_coords
-        for r in r1_unmatched:
-            unmatched_bam.write(r)
-        for r in records:
-            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
-                unmatched_bam.write(r)
+    route = lambda r: [out_bam] if spec_matches_aln(r, spec) else []
+    for group in _iter_pe_groups(in_bam):
+        _route_pe_group(group, route, unmatched_bam)
 
 
 def process_select_multi_se(in_bam, spec_out_pairs, unmatched_bam=None):
@@ -721,77 +688,11 @@ def process_select_multi_se(in_bam, spec_out_pairs, unmatched_bam=None):
             unmatched_bam.write(aln)
 
 
-def _flush_pe_group_multi(records, spec_out_pairs, unmatched_bam=None):
-    """Route a PE query-name group across multiple specs; one unmatched file for R1s matching no spec."""
-    if not records:
-        return
-
-    # Classify each R1: which out_bams does it match?
-    r1_classified = []   # list of (r1, [out_bam, ...])
-    r1_unmatched_list = []
-
-    for r in records:
-        if r.is_read1:
-            matched_outs = [ob for spec, ob in spec_out_pairs if spec_matches_aln(r, spec)]
-            if matched_outs:
-                r1_classified.append((r, matched_outs))
-            elif unmatched_bam is not None:
-                r1_unmatched_list.append(r)
-
-    # Per-out_bam mate coord sets; track all coords claimed by any matched R1.
-    out_mate_coords = {}  # id(out_bam) -> (out_bam, set of (ref_id, ref_start))
-    all_matched_mate_coords = set()
-
-    for r1, matched_outs in r1_classified:
-        valid = (r1.next_reference_id is not None and r1.next_reference_id >= 0
-                 and r1.next_reference_start is not None and r1.next_reference_start >= 0)
-        coord = (r1.next_reference_id, r1.next_reference_start)
-        for ob in matched_outs:
-            ob.write(r1)
-            if valid:
-                key = id(ob)
-                if key not in out_mate_coords:
-                    out_mate_coords[key] = (ob, set())
-                out_mate_coords[key][1].add(coord)
-                all_matched_mate_coords.add(coord)
-
-    for r in records:
-        if r.is_read2:
-            coord = (r.reference_id, r.reference_start)
-            for key, (ob, coords) in out_mate_coords.items():
-                if coord in coords:
-                    ob.write(r)
-
-    if unmatched_bam is not None and r1_unmatched_list:
-        unmatched_mate_coords = {
-            (r.next_reference_id, r.next_reference_start)
-            for r in r1_unmatched_list
-            if r.next_reference_id is not None and r.next_reference_id >= 0
-               and r.next_reference_start is not None and r.next_reference_start >= 0
-        } - all_matched_mate_coords
-        for r in r1_unmatched_list:
-            unmatched_bam.write(r)
-        for r in records:
-            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
-                unmatched_bam.write(r)
-
-
 def process_select_multi_pe(in_bam, spec_out_pairs, unmatched_bam=None):
     """Single-pass PE select across multiple specs."""
-    current_qname = None
-    group = []
-
-    for aln in in_bam.fetch(until_eof=True):
-        name = aln.query_name
-        if name != current_qname:
-            if group:
-                _flush_pe_group_multi(group, spec_out_pairs, unmatched_bam)
-            group = [aln]
-            current_qname = name
-        else:
-            group.append(aln)
-    if group:
-        _flush_pe_group_multi(group, spec_out_pairs, unmatched_bam)
+    route = lambda r: [ob for spec, ob in spec_out_pairs if spec_matches_aln(r, spec)]
+    for group in _iter_pe_groups(in_bam):
+        _route_pe_group(group, route, unmatched_bam)
 
 
 def _select_output_path(in_path, spec, args, out_fmt):
@@ -840,68 +741,9 @@ def process_select_merge_se(in_bam, out_bam, specs, unmatched_bam=None):
 
 def process_select_merge_pe(in_bam, out_bam, specs, unmatched_bam=None):
     """Paired-end --select --merge: group by query_name, select R1 matching any spec."""
-    current_qname = None
-    group = []
-
-    for aln in in_bam.fetch(until_eof=True):
-        qn = aln.query_name
-        if current_qname is None:
-            current_qname = qn
-            group = [aln]
-        elif qn == current_qname:
-            group.append(aln)
-        else:
-            _flush_pe_group_merge(group, specs, out_bam, unmatched_bam)
-            current_qname = qn
-            group = [aln]
-
-    if group:
-        _flush_pe_group_merge(group, specs, out_bam, unmatched_bam)
-
-
-def _flush_pe_group_merge(records, specs, out_bam, unmatched_bam=None):
-    """Select R1s matching any spec (deduplicated), then emit their R2 mates; mirror non-matching to unmatched_bam."""
-    if not records:
-        return
-
-    r1_matched, r1_unmatched = [], []
-    for r in records:
-        if not r.is_read1:
-            continue
-        for spec in specs:
-            if spec_matches_aln(r, spec):
-                r1_matched.append(r)
-                break
-        else:
-            if unmatched_bam is not None:
-                r1_unmatched.append(r)
-
-    matched_mate_coords = set()
-    if r1_matched:
-        matched_mate_coords = {
-            (r.next_reference_id, r.next_reference_start)
-            for r in r1_matched
-            if r.next_reference_id is not None and r.next_reference_start is not None
-               and r.next_reference_id >= 0 and r.next_reference_start >= 0
-        }
-        for r in r1_matched:
-            out_bam.write(r)
-        for r in records:
-            if r.is_read2 and (r.reference_id, r.reference_start) in matched_mate_coords:
-                out_bam.write(r)
-
-    if unmatched_bam is not None and r1_unmatched:
-        unmatched_mate_coords = {
-            (r.next_reference_id, r.next_reference_start)
-            for r in r1_unmatched
-            if r.next_reference_id is not None and r.next_reference_start is not None
-               and r.next_reference_id >= 0 and r.next_reference_start >= 0
-        } - matched_mate_coords
-        for r in r1_unmatched:
-            unmatched_bam.write(r)
-        for r in records:
-            if r.is_read2 and (r.reference_id, r.reference_start) in unmatched_mate_coords:
-                unmatched_bam.write(r)
+    route = lambda r: [out_bam] if any(spec_matches_aln(r, s) for s in specs) else []
+    for group in _iter_pe_groups(in_bam):
+        _route_pe_group(group, route, unmatched_bam)
 
 
 def _exclude_output_path(in_path, args, out_fmt):
@@ -958,22 +800,7 @@ def _flush_pe_group_exclude(records, specs, out_bam):
 
 def process_exclude_pe(in_bam, out_bam, specs):
     """Paired-end --exclude: group by query_name, emit R1s matching no spec."""
-    current_qname = None
-    group = []
-
-    for aln in in_bam.fetch(until_eof=True):
-        qn = aln.query_name
-        if current_qname is None:
-            current_qname = qn
-            group = [aln]
-        elif qn == current_qname:
-            group.append(aln)
-        else:
-            _flush_pe_group_exclude(group, specs, out_bam)
-            current_qname = qn
-            group = [aln]
-
-    if group:
+    for group in _iter_pe_groups(in_bam):
         _flush_pe_group_exclude(group, specs, out_bam)
 
 
@@ -983,35 +810,7 @@ def run_select(args):
     specs = [parse_spec(s) for s in specs_raw]
 
     for in_path in args.input_files:
-        actual_in = in_path
-        tmp_stdin   = None
-        tmp_cram2bam = None
-        tmp_sorted  = None
-
-        try:
-            # Detect input format
-            if in_path == "-":
-                tmp_stdin, in_fmt = _spool_and_detect_stdin()
-                actual_in = tmp_stdin
-            else:
-                in_fmt = _detect_format(in_path)
-
-            if in_fmt == 'cram' and not args.reference:
-                die(f"CRAM input '{in_path}' requires -r/--reference.")
-
-            out_fmt = _resolve_out_fmt(in_fmt, args)
-            if out_fmt == 'cram' and not args.reference:
-                die("CRAM output requires -r/--reference.")
-
-            # Name sort by default; skip if --no-name-sort
-            if not args.no_name_sort:
-                if in_fmt == 'cram':
-                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
-                    actual_in = tmp_cram2bam
-                tmp_sorted = name_sort_bam(actual_in, args.threads)
-                actual_in = tmp_sorted
-                in_fmt = 'bam'
-
+        with prepared_input(in_path, args) as (actual_in, in_fmt, out_fmt):
             if args.merge:
                 out_path = _merge_output_path(in_path, args, out_fmt)
                 in_bam, out_bam = open_alignment_files(
@@ -1085,13 +884,6 @@ def run_select(args):
                     finally:
                         out_bam.close()
                         in_bam.close()
-        finally:
-            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
-                if tmp:
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
 
 
 def _count_output_path(in_path, args):
@@ -1165,31 +957,7 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
 def run_count(args):
     """Execute --count mode."""
     for in_path in args.input_files:
-        actual_in = in_path
-        tmp_stdin   = None
-        tmp_cram2bam = None
-        tmp_sorted  = None
-
-        try:
-            # Detect input format
-            if in_path == "-":
-                tmp_stdin, in_fmt = _spool_and_detect_stdin()
-                actual_in = tmp_stdin
-            else:
-                in_fmt = _detect_format(in_path)
-
-            if in_fmt == 'cram' and not args.reference:
-                die(f"CRAM input '{in_path}' requires -r/--reference.")
-
-            # Name sort by default; skip if --no-name-sort
-            if not args.no_name_sort:
-                if in_fmt == 'cram':
-                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
-                    actual_in = tmp_cram2bam
-                tmp_sorted = name_sort_bam(actual_in, args.threads)
-                actual_in = tmp_sorted
-                in_fmt = 'bam'
-
+        with prepared_input(in_path, args) as (actual_in, in_fmt, _out_fmt):
             kw = {}
             if args.threads > 1:
                 kw['threads'] = args.threads
@@ -1207,13 +975,6 @@ def run_count(args):
 
             out_path = _count_output_path(in_path, args)
             write_count_tsv(counts, out_path, collapse_threshold=args.collapse_threshold)
-        finally:
-            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
-                if tmp:
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
 
 
 def _all_output_path(in_path, type_str, args, out_fmt):
@@ -1247,7 +1008,7 @@ def process_all_se(in_bam, in_path, args, collapse_types=None):
     open_files = {}
     try:
         for aln in in_bam.fetch(until_eof=True):
-            t = classify_5prime_type(aln)
+            t = classify_5prime_type(aln, mapped_prefix=args.mapped_prefix)
             if t is None:
                 continue
             effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
@@ -1267,7 +1028,7 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
     for r in records:
         if not r.is_read1:
             continue
-        t = classify_5prime_type(r)
+        t = classify_5prime_type(r, mapped_prefix=args.mapped_prefix)
         if t is None:
             continue
         effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
@@ -1288,23 +1049,8 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
 def process_all_pe(in_bam, in_path, args, collapse_types=None):
     """Paired-end --all: group by query_name, route R1+R2 pairs by R1 type."""
     open_files = {}
-    current_qname = None
-    group = []
-
     try:
-        for aln in in_bam.fetch(until_eof=True):
-            qn = aln.query_name
-            if current_qname is None:
-                current_qname = qn
-                group = [aln]
-            elif qn == current_qname:
-                group.append(aln)
-            else:
-                _flush_pe_group_all(group, in_bam, in_path, args, open_files, collapse_types)
-                current_qname = qn
-                group = [aln]
-
-        if group:
+        for group in _iter_pe_groups(in_bam):
             _flush_pe_group_all(group, in_bam, in_path, args, open_files, collapse_types)
     finally:
         for f in open_files.values():
@@ -1314,37 +1060,9 @@ def process_all_pe(in_bam, in_path, args, collapse_types=None):
 def run_all(args):
     """Execute --all mode."""
     for in_path in args.input_files:
-        actual_in = in_path
-        tmp_stdin   = None
-        tmp_cram2bam = None
-        tmp_sorted  = None
-
-        try:
-            # Detect input format
-            if in_path == "-":
-                tmp_stdin, in_fmt = _spool_and_detect_stdin()
-                actual_in = tmp_stdin
-            else:
-                in_fmt = _detect_format(in_path)
-
-            if in_fmt == 'cram' and not args.reference:
-                die(f"CRAM input '{in_path}' requires -r/--reference.")
-
-            out_fmt = _resolve_out_fmt(in_fmt, args)
-            if out_fmt == 'cram' and not args.reference:
-                die("CRAM output requires -r/--reference.")
-
+        with prepared_input(in_path, args) as (actual_in, in_fmt, out_fmt):
             # Attach resolved output format to args so helpers can access it
             args.out_fmt = out_fmt
-
-            # Name sort by default; skip if --no-name-sort
-            if not args.no_name_sort:
-                if in_fmt == 'cram':
-                    tmp_cram2bam = _cram_to_temp_bam(actual_in, args.threads, args.reference)
-                    actual_in = tmp_cram2bam
-                tmp_sorted = name_sort_bam(actual_in, args.threads)
-                actual_in = tmp_sorted
-                in_fmt = 'bam'
 
             kw = {}
             if args.threads > 1:
@@ -1380,13 +1098,6 @@ def run_all(args):
                     process_all_se(in_bam, in_path, args, collapse_types=collapse_types)
             finally:
                 in_bam.close()
-        finally:
-            for tmp in [tmp_stdin, tmp_cram2bam, tmp_sorted]:
-                if tmp:
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
 
 
 def main(argv=None):

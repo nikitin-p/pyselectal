@@ -68,7 +68,7 @@ You can also read from `stdin`:
 tool_1 | pyselectal.py -i - <mode> [optional arguments]
 ```
 
-The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by [magic bytes](https://en.wikipedia.org/wiki/Magic_number_(programming)#In_files); CRAM requires `-r`, see below). Output always goes to named files on disk.
+The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf)); CRAM requires `-r`, see below). Output always goes to named files on disk.
 
 ### Important notes
 
