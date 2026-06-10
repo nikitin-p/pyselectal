@@ -63,6 +63,7 @@ import pysam
 
 SOFT = 4   # 'S' soft-clip in pysam CIGAR codes
 MATCH = 0  # 'M' (alignment match) in pysam CIGAR codes
+REVCOMP_TABLE = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
 class HelpfulArgumentParser(argparse.ArgumentParser):
     def error(self, message):
@@ -169,8 +170,7 @@ def revcomp(seq: str) -> str:
     """
     Reverse-complement a DNA sequence (ACGTN, case-insensitive).
     """
-    table = str.maketrans("ACGTNacgtn", "TGCANtgcan")
-    return seq.translate(table)[::-1]
+    return seq.translate(REVCOMP_TABLE)[::-1]
 
 
 def get_5prime_cigar(aln):
@@ -1024,7 +1024,7 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
     if not records:
         return
 
-    mate_type = {}
+    mate_types = {}
     for r in records:
         if not r.is_read1:
             continue
@@ -1036,14 +1036,18 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
         out.write(r)
         if (r.next_reference_id is not None and r.next_reference_start is not None
                 and r.next_reference_id >= 0 and r.next_reference_start >= 0):
-            mate_type[(r.next_reference_id, r.next_reference_start)] = effective_t
+            coord = (r.next_reference_id, r.next_reference_start)
+            if coord not in mate_types:
+                mate_types[coord] = set()
+            mate_types[coord].add(effective_t)
 
     for r in records:
         if not r.is_read2:
             continue
-        t = mate_type.get((r.reference_id, r.reference_start))
-        if t is not None:
-            open_files[t].write(r)
+        types = mate_types.get((r.reference_id, r.reference_start))
+        if types:
+            for t in types:
+                open_files[t].write(r)
 
 
 def process_all_pe(in_bam, in_path, args, collapse_types=None):
