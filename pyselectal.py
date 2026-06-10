@@ -17,7 +17,7 @@ Options:
   -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
   -u, --unmatched                Write non-matching alignments to a separate auto-named file
-  -j, --unmatched-file FILE      Write non-matching alignments to FILE (implies -u)
+  -f, --unmatched-file FILE      Write non-matching alignments to FILE (implies -u)
   -x, --exclude                  Invert selection: output alignments matching none of the specs
   -n, --no-name-sort             Skip internal name sorting (input already name-sorted)
   -t, --threads N                BGZF threads (default: 1)
@@ -374,7 +374,7 @@ def parse_args(argv):
                         help="Merge multiple --select specs into one output file.")
     parser.add_argument("-u", "--unmatched", action="store_true",
                         help="Write non-matching alignments to a separate auto-named file.")
-    parser.add_argument("-j", "--unmatched-file", type=str, default=None, metavar="FILE",
+    parser.add_argument("-f", "--unmatched-file", type=str, default=None, metavar="FILE",
                         help="Write non-matching alignments to FILE (implies -u).")
     parser.add_argument("-x", "--exclude", action="store_true",
                         help="Invert selection: output alignments matching none of the specs.")
@@ -438,7 +438,7 @@ def parse_args(argv):
     if args.merge and args.select is None:
         parser.error("-m/--merge can only be used with -s/--select.")
 
-    # -j/--unmatched-file implies -u/--unmatched
+    # -f/--unmatched-file implies -u/--unmatched
     if args.unmatched_file:
         args.unmatched = True
 

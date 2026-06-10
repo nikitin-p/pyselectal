@@ -103,7 +103,7 @@ Use `-o` to override: specify a file path for `--select`, or a directory for `--
 
 ### Definitions
 
-A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `1Sg` (1 soft-clipped G), `2Sgg` (2 soft-clipped Gs), or `75Mgaggg` (75 matched bases starting with GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `75Mgaggg` (75 matched bases starting with GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
 
 Modes are mutually exclusive, and setting exactly one is required.
 
@@ -125,11 +125,9 @@ A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[pattern]` (case-insen
 | `n..m` | Between n and m bases (inclusive) |
 | `n..` | At least n bases |
 | `..m` | At most m bases |
-| `pattern` | Sequence pattern (literal or Python regex, matched via `re.fullmatch()`) |
+| `pattern` | Sequence pattern (literal or [Python regex](https://docs.python.org/3/library/re.html#regular-expression-syntax), matched via `re.fullmatch()`) |
 
-The pattern can be a literal sequence (`g`, `ttc`) or use Python [`re` module syntax](https://docs.python.org/3/library/re.html#regular-expression-syntax) (`g+`, `g.c`, `[acgt]+`). The entire extracted sequence must match the pattern (fullmatch semantics).
-
-Reverse-strand alignments are handled automatically (sequence is reverse-complemented before matching).
+The pattern can be a literal sequence (`g`, `ttc`) or use regex syntax (`g+`, `g.c`, `[acgt]+`). The entire extracted 5′ sequence must match the pattern (fullmatch semantics). Reverse-strand alignments are handled automatically (the sequence is reverse-complemented before matching).
 
 If the pattern is a literal (no regex metacharacters), the length is inferred from the pattern itself — `Sg` equals `1Sg`, `Sttc` equals `3Sttc`. When the pattern contains regex metacharacters (`+`, `*`, `.`, `[]`, etc.), an explicit length quantifier controls the match range.
 
@@ -169,7 +167,7 @@ Examples:
 
 `-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`.
 
-`-j, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
+`-f, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
 
 `-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Output is written to `{stem}_excluded{ext}` per input file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
 
@@ -240,7 +238,7 @@ pyselectal.py -i in.bam -s Sg -u
 8. Same as above, but specify a custom filename for unmatched alignments:
 
 ```bash
-pyselectal.py -i in.bam -s Sg -j rejected.bam
+pyselectal.py -i in.bam -s Sg -f rejected.bam
 # output: in_sg.bam (matched), rejected.bam (unmatched)
 ```
 

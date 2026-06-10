@@ -707,19 +707,19 @@ class TestUnmatched:
         assert _count_reads_in_bam(out_file) == 3
         assert _count_reads_in_bam(unmatched) == 7
 
-    def test_j_custom_unmatched_file(self, tmp_path):
-        """-j FILE writes unmatched alignments to specified file."""
+    def test_f_custom_unmatched_file(self, tmp_path):
+        """-f FILE writes unmatched alignments to specified file."""
         os.chdir(str(tmp_path))
         custom_unmatched = str(tmp_path / "my_unmatched.bam")
         out_file = str(tmp_path / "matched.bam")
-        main(["-i", SE_BAM, "-s", "1Sg", "-j", custom_unmatched, "-o", out_file])
+        main(["-i", SE_BAM, "-s", "1Sg", "-f", custom_unmatched, "-o", out_file])
         assert os.path.exists(custom_unmatched)
         assert _count_reads_in_bam(custom_unmatched) == 7
         assert not os.path.exists(str(tmp_path / "test_softclip_se_unmatched.bam"))
 
-    def test_j_implies_unmatched(self):
-        """-j FILE implies -u/--unmatched."""
-        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-j", "out.bam"])
+    def test_f_implies_unmatched(self):
+        """-f FILE implies -u/--unmatched."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-f", "out.bam"])
         assert args.unmatched is True
         assert args.unmatched_file == "out.bam"
 
