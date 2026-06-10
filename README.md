@@ -103,7 +103,7 @@ Use `-o` to override: specify a file path for `--select`, or a directory for `--
 
 ### Definitions
 
-A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `75Mgaggg` (75 matched bases starting with GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `Mgaggg` (5 matched bases GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
 
 Modes are mutually exclusive, and setting exactly one is required.
 
