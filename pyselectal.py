@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-VERSION = "pyselectal v3.0"
+VERSION = "pyselectal v1.0"
 
 MANUAL = """\
 pyselectal — filter and analyze alignments by 5'-end type

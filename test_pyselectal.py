@@ -27,7 +27,7 @@ class TestVersion:
         assert exc.value.code == 0
 
     def test_version_string(self):
-        assert "v3.0" in VERSION
+        assert "v1.0" in VERSION
 
 
 class TestHelp:
@@ -197,7 +197,7 @@ class TestParseSpec:
     # --- Softclip specs ---
 
     def test_exact_softclip_with_single_base(self):
-        """1Sg -> exact 1bp softclip, seq is 'G' (no expansion in v3)."""
+        """1Sg -> exact 1bp softclip, seq is 'G' (no expansion in v1)."""
         s = parse_spec("1Sg")
         assert s["type"] == "S"
         assert s["n"] == 1
@@ -213,7 +213,7 @@ class TestParseSpec:
         assert s["seq"] == "AAC"
 
     def test_exact_softclip_single_base(self):
-        """2Sg -> exact 2bp softclip, seq is 'G' (no expansion in v3)."""
+        """2Sg -> exact 2bp softclip, seq is 'G' (no expansion in v1)."""
         s = parse_spec("2Sg")
         assert s["type"] == "S"
         assert s["n"] == 2
@@ -303,7 +303,7 @@ class TestParseSpec:
         assert s["seq"] is None
 
     def test_mapped_with_prefix(self):
-        """2Mg -> exactly 2 matched bases, seq is 'G' (no expansion in v3)."""
+        """2Mg -> exactly 2 matched bases, seq is 'G' (no expansion in v1)."""
         s = parse_spec("2Mg")
         assert s["type"] == "M"
         assert s["n"] == 2
