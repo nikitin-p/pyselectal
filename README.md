@@ -13,6 +13,7 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 - [Modes](#modes)
 - [Optional arguments](#optional-arguments)
 - [Examples](#examples)
+- [Testing](#testing)
 - [Test data](#test-data)
 
 ## Concept and motivation
@@ -284,6 +285,16 @@ pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
 ```bash
 samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select Sg -r ref.fa -o out.bam
 ```
+
+## Testing
+
+The project uses [pytest](https://docs.pytest.org/) for automated testing. To run the full test suite:
+
+```bash
+python -m pytest test_pyselectal.py -v
+```
+
+All tests are contained in `test_pyselectal.py` and cover spec parsing, alignment matching, SE/PE processing, and end-to-end mode execution.
 
 ## Test data
 
