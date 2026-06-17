@@ -8,10 +8,7 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Input](#input)
-- [Output](#output)
-- [Modes](#modes)
-- [Optional arguments](#optional-arguments)
+- [Options](#options)
 - [Examples](#examples)
 - [Testing](#testing)
 - [Resource usage](#resource-usage)
@@ -72,6 +69,29 @@ tool_1 | pyselectal.py -i - <mode> [optional arguments]
 
 The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf)); CRAM requires `-r`, see below). Output always goes to named files on disk.
 
+```
+-i, --input FILE[,FILE,...]   input file(s)
+-s, --select SPEC[,SPEC,...]  select by 5′-end spec
+-c, --count                   count 5′-end types
+-a, --all                     split by 5′-end type
+-o, --output PATH             output file or directory
+-m, --merge                   merge specs into one output
+-u, --unmatched               write unmatched alignments
+-f, --unmatched-file FILE     custom unmatched filename
+-x, --exclude                 invert selection
+-p, --paired                  paired-end mode
+-n, --no-name-sort            skip name sorting
+-t, --threads N               BGZF threads
+-S, --sam                     force SAM output
+-B, --bam                     force BAM output
+-C, --cram                    force CRAM output
+-r, --reference FASTA         reference for CRAM
+--mapped-prefix N             matched bases in --count
+--collapse-threshold PCT      collapse rare types
+-h, --help                    show help
+-v, --version                 show version
+```
+
 ### Important notes
 
 1. The 3′-end mapping pattern is ignored.
@@ -79,11 +99,25 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 3. For paired-end input, reads must be name-sorted; pyselectal name-sorts internally by default (use `--no-name-sort` to skip if input is already sorted).
 4. Multi-mapped reads produce multiple alignments, each processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary) unless studying multi-mappers.
 
-## Input
+## Options
+
+### Definitions
+
+A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `Mgaggg` (5 matched bases GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+
+### Input
 
 `-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. At least one input file is required.
 
-## Output
+### Mode (exactly one required)
+
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
+
+`-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
+
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into `{stem}_other_soft_clipped.bam` (soft-clipped) and `{stem}_other_mapped.bam` (mapped) instead of individual per-type files.
+
+### Output
 
 By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
 
@@ -99,21 +133,39 @@ Output file naming depends on the mode:
 - `--count`: `{stem}_5prime_counts.tsv` per input file;
 - `--all`: `{stem}_{type}{ext}` per 5′ end type, per input file.
 
-Use `-o` to override: specify a file path for `--select`, or a directory for `--all`.
+`-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
 
-## Modes
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
 
-### Definitions
+`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
 
-A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `Mgaggg` (5 matched bases GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+### Selection modifiers
 
-Modes are mutually exclusive, and setting exactly one is required.
+`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
+`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`.
 
-`-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
+`-f, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
 
-`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into `{stem}_other_soft_clipped.bam` (soft-clipped) and `{stem}_other_mapped.bam` (mapped) instead of individual per-type files.
+`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Output is written to `{stem}_excluded{ext}` per input file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
+
+### Processing
+
+`-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, pyselectal name-sorts the input before processing.
+
+`-t, --threads N` — BGZF compression/decompression threads (default: 1).
+
+`-p, --paired` — Paired-end mode: selection is applied to R1; R2 mates corresponding to selected R1 mates are included automatically if mapped.
+
+`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
+
+`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows (`--count`) or into `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam` (`--all`) (default: 1; 0 = off).
+
+### Informational
+
+`-h, --help` — Display a full manual and exit.
+
+`-v, --version` — Print the program version and exit.
 
 ### Spec grammar
 
@@ -160,36 +212,6 @@ Examples:
 | `Sg[ga]c` | Soft-clipped ggc or gac (`[ga]` = character class) |
 | `3..4Sca+g` | Soft-clipped cag or caag (length 3–4 from `ca+g`) |
 | `4Sca+g` | Only caag (exactly 4 bases matching `ca+g`) |
-
-## Optional arguments
-
-`-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
-
-`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
-
-`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`.
-
-`-f, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
-
-`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Output is written to `{stem}_excluded{ext}` per input file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
-
-`-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, pyselectal name-sorts the input before processing.
-
-`-t, --threads N` — BGZF compression/decompression threads (default: 1).
-
-`-p, --paired` — Paired-end mode: selection is applied to R1; R2 mates corresponding to selected R1 mates are included automatically if mapped.
-
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
-
-`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
-
-`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
-
-`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows (`--count`) or into `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam` (`--all`) (default: 1; 0 = off).
-
-`-h, --help` — Display a full manual and exit.
-
-`-v, --version` — Print the program version and exit.
 
 ## Examples
 
