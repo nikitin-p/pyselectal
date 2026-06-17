@@ -13,6 +13,7 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 - [Testing](#testing)
 - [Resource usage](#resource-usage)
 - [Test data](#test-data)
+- [Citation](#citation)
 
 ## Concept and motivation
 
@@ -366,4 +367,22 @@ Test BAM files are small and can be inspected manually with:
 ```bash
 samtools view testdata/test_softclip_se.bam
 samtools view testdata/test_softclip_pe.bam
+```
+
+## Citation
+
+If you use pyselectal in your research, please cite:
+
+> Nikitin P, Sidorov S. pyselectal: Python selection of alignments by 5′-end type. 2026. https://github.com/nikitin-p/pyselectal
+
+BibTeX:
+
+```bibtex
+@software{pyselectal,
+  author       = {Nikitin, Pavel and Sidorov, Sviatoslav},
+  title        = {pyselectal: Python selection of alignments by 5′-end type},
+  year         = {2026},
+  url          = {https://github.com/nikitin-p/pyselectal},
+  note         = {Version 1.0}
+}
 ```

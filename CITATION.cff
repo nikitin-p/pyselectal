@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "pyselectal: Python selection of alignments by 5′-end type"
+version: "1.0"
+date-released: "2026-01-01"
+license: MIT
+repository-code: "https://github.com/nikitin-p/pyselectal"
+type: software
+authors:
+  - family-names: Nikitin
+    given-names: Pavel
+  - family-names: Sidorov
+    given-names: Sviatoslav
+keywords:
+  - bioinformatics
+  - genomics
+  - transcription start site
+  - TSS
+  - CAGE
+  - RNA-seq
+  - BAM
+  - SAM
+  - alignment filtering
+abstract: >-
+  Pyselectal is a command-line tool for filtering genomic alignments
+  in BAM, SAM, and CRAM formats by the length and sequence of soft-clipped
+  or mapped 5′-ends. It supports single-end and paired-end reads and is
+  designed for NGS pipelines focused on transcription start sites.
+# Uncomment and update the following after Zenodo archival:
+# doi: "10.5281/zenodo.XXXXXXX"
+# identifiers:
+#   - type: doi
+#     value: "10.5281/zenodo.XXXXXXX"
+#     description: "Zenodo archive"
