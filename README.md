@@ -1,7 +1,5 @@
 # pyselectal
 
-[![Cite this repository](https://img.shields.io/badge/Cite%20this%20repository-blue)](CITATION.cff)
-
 Pyselectal (Python selection of alignments) is a Python script for filtering alignments in BAM, SAM and CRAM formats by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines. You can then **select** reads matching a 5'-end pattern, **count** the distribution of 5'-end types, or **split** an alignment file into one file per type.
 
 ## Contents
