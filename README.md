@@ -2,6 +2,8 @@
 
 Pyselectal (Python selection of alignments) is a Python script for filtering alignments in BAM, SAM and CRAM formats by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines. You can then **select** reads matching a 5'-end pattern, **count** the distribution of 5'-end types, or **split** an alignment file into one file per type.
 
+![pyselectal overview](img/pyselectal_overview.png)
+
 ## Contents
 
 - [Concept and motivation](#concept-and-motivation)
@@ -112,6 +114,8 @@ A **5′ type** is a string that describes the exact 5′-end structure of an al
 
 ### Mode (exactly one required)
 
+![pyselectal select](img/pyselectal_select.png)
+
 `-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
 
 `-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
@@ -168,7 +172,7 @@ Output file naming depends on the mode:
 
 `-v, --version` — Print the program version and exit.
 
-### Spec grammar
+## Spec grammar
 
 A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[pattern]` (case-insensitive; `<>` = required):
 
@@ -322,7 +326,7 @@ All tests are contained in `test_pyselectal.py` and cover spec parsing, alignmen
 
 ## Resource usage
 
-Benchmarks on three BAM files with 5 million alignments each (VM with 20 CPUs, 40 GB RAM):
+Benchmarks on three SE BAM files with 5 million alignments each:
 
 | Mode | Time (avg) | Memory |
 | --- | --- | --- |
@@ -373,7 +377,7 @@ samtools view testdata/test_softclip_pe.bam
 
 If you use pyselectal in your research, please cite:
 
-> Nikitin P, Sidorov S. pyselectal: Python selection of alignments by 5′-end type. 2026. https://github.com/nikitin-p/pyselectal
+> Nikitin P., Sidorov S. pyselectal: Python selection of alignments by 5′-end type. 2026. https://github.com/nikitin-p/pyselectal
 
 BibTeX:
 
