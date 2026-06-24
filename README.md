@@ -326,7 +326,7 @@ All tests are contained in `test_pyselectal.py` and cover spec parsing, alignmen
 
 ## Resource usage
 
-Benchmarks on three SE BAM files with 5 million alignments each:
+Benchmarks on three SE BAM files with 5 million alignments each (Intel Xeon Processor Icelake, ~2 GHz):
 
 | Mode | Time (avg) | Memory |
 | --- | --- | --- |
@@ -339,7 +339,8 @@ Notes:
 - **SELECT** is the fastest mode, processing ~135,000 alignments per second;
 - **COUNT** is slightly slower due to per-alignment type classification;
 - **ALL** takes roughly twice as long because it performs two passes over the input (first to count types for `--collapse-threshold`, then to route alignments);
-- Memory usage is stable regardless of mode and input size, since pyselectal processes alignments in a streaming fashion (PE mode buffers one read group at a time).
+- Memory usage is stable regardless of mode and input size, since pyselectal processes alignments in a streaming fashion (PE mode buffers one read group at a time);
+- Processing is **single-threaded** (~95–99% CPU utilization); the `-t/--threads` option only affects BGZF compression/decompression, not the main processing loop.
 
 ## Test data
 
