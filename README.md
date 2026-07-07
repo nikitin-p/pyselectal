@@ -1,6 +1,6 @@
 # pyselectal
 
-Pyselectal (Python selection of alignments) is a Python script for filtering alignments in BAM, SAM and CRAM formats by the length and sequence of soft-clipped or mapped 5′-end of alignments. It supports single-end and paired-end reads and is designed to be easily integrated into NGS pipelines. You can then **select** reads matching a 5'-end pattern, **count** the distribution of 5'-end types, or **split** an alignment file into one file per type.
+Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or CRAM format by the length and sequence of the soft-clipped or mapped 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5'-end pattern, profile the distribution of 5'-end types or split an alignment file per 5'-end type.
 
 ![pyselectal overview](img/pyselectal_overview.png)
 
@@ -19,9 +19,9 @@ Pyselectal (Python selection of alignments) is a Python script for filtering ali
 
 ## Concept and motivation
 
-Pyselectal is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent unencoded base `G` added by the reverse transcriptase during template switching.
+Pyselectal is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent base `G` added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping patterns, mapped 5′ ends and optional sequence constraints. While sequencing method-agnostic, it is particularly useful for CAGE ([Shiraki *et al.*, 2003](https://pubmed.ncbi.nlm.nih.gov/14663149/); [Murata *et al.*, 2014](https://pubmed.ncbi.nlm.nih.gov/24927836/)), nanoCAGE ([Salimullah *et al.*, 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC4181851/)), CAGEscan ([Bertin *et al.*, 2017](https://pubmed.ncbi.nlm.nih.gov/28972578/)) and other 5′-end-focused RNA sequencing experiments, including bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping or mapping patterns, as well as optional 5′-end sequence constraints. While sequencing method-agnostic, `pyselectal` is particularly useful for CAGE ([Shiraki *et al.*, 2003](https://pubmed.ncbi.nlm.nih.gov/14663149/); [Murata *et al.*, 2014](https://pubmed.ncbi.nlm.nih.gov/24927836/)), nanoCAGE ([Salimullah *et al.*, 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC4181851/)), CAGEscan ([Bertin *et al.*, 2017](https://pubmed.ncbi.nlm.nih.gov/28972578/)) and other 5′-end-focused RNA sequencing experiments, both bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
 
 ## Requirements
 
@@ -42,7 +42,7 @@ pip install pysam
 
 ## Installation
 
-Clone the repository and make the `pyselectal.py` script executable:
+Clone the repository and make `pyselectal.py` executable:
 
 ```bash
 git clone https://github.com/nikitin-p/pyselectal.git
