@@ -1,6 +1,6 @@
 # pyselectal
 
-Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or CRAM format by the length and sequence of the soft-clipped or mapped 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5'-end pattern, profile the distribution of 5'-end types or split an alignment file per 5'-end type.
+Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format by the length and sequence of the soft-clipped or mapped 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5'-end pattern, profile the distribution of 5'-end types or split an alignment file per 5'-end type.
 
 ![pyselectal overview](img/pyselectal_overview.png)
 
@@ -56,44 +56,25 @@ Then, you can run it directly:
 
 ## Usage
 
-`pyselectal` takes as input one or more alignment files (in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format) containing local alignments (i.e., with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`.
+Reading from `FILE`(s):
 
 ```bash
 pyselectal.py -i FILE[,FILE,...] <mode> [optional arguments]
 ```
 
-Input is indicated by the mandatory `-i` option and consists of one alignment file or several files separated by commas. `<mode>` is also mandatory and specifies the mode of action (`--select`, `--count`, or `--all`; see below). Exactly one mode must be set. Additionally, you can provide optional arguments, including the name of the output file or directory. See the description of optional arguments below.
-
-You can also read from `stdin`:
+Reading from the standard input (`stdin`):
 
 ```bash
-tool_1 | pyselectal.py -i - <mode> [optional arguments]
+tool | pyselectal.py -i - <mode> [optional arguments]
 ```
 
-The dash (`-`) as the argument to `-i` designates reading input alignments from `stdin` (the BAM, SAM or CRAM format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf)); CRAM requires `-r`, see below). Output always goes to named files on disk.
+## Description
 
-```
--i, --input FILE[,FILE,...]   input file(s)
--s, --select SPEC[,SPEC,...]  select by 5′-end spec
--c, --count                   count 5′-end types
--a, --all                     split by 5′-end type
--o, --output PATH             output file or directory
--m, --merge                   merge specs into one output
--u, --unmatched               write unmatched alignments
--f, --unmatched-file FILE     custom unmatched filename
--x, --exclude                 invert selection
--p, --paired                  paired-end mode
--n, --no-name-sort            skip name sorting
--t, --threads N               BGZF threads
--S, --sam                     force SAM output
--B, --bam                     force BAM output
--C, --cram                    force CRAM output
--r, --reference FASTA         reference for CRAM
---mapped-prefix N             matched bases in --count
---collapse-threshold PCT      collapse rare types
--h, --help                    show help
--v, --version                 show version
-```
+`pyselectal` reads one or more BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) files with local alignments (that is, with possible soft-clipping). They can be obtained by running, for example, [STAR](https://github.com/alexdobin/STAR) with `--alignEndsType Local` or [HISAT2](https://github.com/DaehwanKimLab/hisat2) / [Bowtie2](https://github.com/BenLangmead/bowtie2) with `--local`. It requires setting exactly one `mode` of action:
+
+1. `--select` to select alignments with particular properties of the 5′ end (a particular **5′-end type**).
+2. `--count` to build the frequency distribution of all 5′-end types present in input files.
+3. `--all` to split input files by the 5′-end type.
 
 ### Important notes
 
@@ -102,21 +83,45 @@ The dash (`-`) as the argument to `-i` designates reading input alignments from 
 3. For paired-end input, reads must be name-sorted; pyselectal name-sorts internally by default (use `--no-name-sort` to skip if input is already sorted).
 4. Multi-mapped reads produce multiple alignments, each processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary) unless studying multi-mappers.
 
+## Options summary
+
+```
+-i, --input FILE[,FILE,...]   input file(s)
+-s, --select SPEC[,SPEC,...]  select by 5′-end spec (see below)
+-c, --count                   count 5′-end types
+-a, --all                     split by 5′-end type
+-o, --output PATH             output file or directory
+-m, --merge                   merge specs into one output
+-u, --unmatched [FILE]        write unmatched alignments (to custom FILE if set)
+-x, --exclude                 invert selection
+-p, --paired                  paired-end mode
+-n, --no-name-sort            skip name sorting
+-t, --threads N               number of BGZF threads
+-S, --sam                     force SAM output
+-B, --bam                     force BAM output
+-C, --cram                    force CRAM output
+-r, --reference FASTA         reference for CRAM
+--mapped-prefix N             number of matched bases in --count
+--collapse-threshold PCT      collapse rare 5′-end types
+-h, --help                    show help
+-v, --version                 show version
+```
+
 ## Options
 
-### Definitions
-
-A **5′ type** is a string that describes the exact 5′-end structure of an alignment, such as `Sg` (1 soft-clipped G), `Sgg` (2 soft-clipped Gs), or `Mgaggg` (5 matched bases GAGGG). A **5′ spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+Detailed descriptions of available options are grouped by topic.
 
 ### Input
 
-`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin`. At least one input file is required.
+`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin` (in this case, the input format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf))). At least one input file is required. The CRAM input format additionally requires providing a reference genome sequence in the FASTA format with `-r`.
+
+`-r, --reference FASTA` — Reference FASTA for CRAM input (or output).
 
 ### Mode (exactly one required)
 
 ![pyselectal select](img/pyselectal_select.png)
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive.
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive. A **5′-end spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
 
 `-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
 
@@ -140,9 +145,7 @@ Output file naming depends on the mode:
 
 `-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
 
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r`.
-
-`-r, --reference FASTA` — Reference FASTA for CRAM input or output.
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r` (see above).
 
 ### Selection modifiers
 
