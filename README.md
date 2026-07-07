@@ -76,7 +76,7 @@ tool | pyselectal.py -i - <mode> [optional arguments]
 2. `--count` to build the frequency distribution of all 5′-end types present in input files.
 3. `--all` to split input files by the 5′-end type.
 
-### Important notes
+### Behaviour details
 
 1. The 3′-end mapping pattern is ignored.
 2. Unmapped alignments are never selected.
