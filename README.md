@@ -117,7 +117,7 @@ Detailed descriptions of available options are grouped by topic.
 
 `-r, --reference FASTA` — Reference FASTA file for CRAM input (or output).
 
-### Modes of action and their additional options
+### Modes
 
 Exactly one mode is required:
 
