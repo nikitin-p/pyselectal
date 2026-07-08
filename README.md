@@ -79,9 +79,9 @@ tool | pyselectal.py -i - <mode> [optional arguments]
 ### Behaviour details
 
 1. The 3′-end mapping pattern is ignored.
-2. Unmapped alignments are never selected.
-3. For paired-end input, reads must be name-sorted; pyselectal name-sorts internally by default (use `--no-name-sort` to skip if input is already sorted).
-4. Multi-mapped reads produce multiple alignments, each processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary) unless studying multi-mappers.
+2. Unmapped reads are never selected.
+3. For paired-end input, alignments must be name-sorted. `pyselectal` name-sorts internally by default; use `--no-name-sort` to skip if input is already name-sorted.
+4. Multiple alignments of the same read (or read pair) are processed independently. Consider filtering for primary alignments beforehand (e.g., `samtools view -F 2304` to exclude secondary and supplementary alignments), unless studying multi-mappers.
 
 ## Options summary
 
@@ -113,39 +113,21 @@ Detailed descriptions of available options are grouped by topic.
 
 ### Input
 
-`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for `stdin` (in this case, the input format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf))). At least one input file is required. The CRAM input format additionally requires providing a reference genome sequence in the FASTA format with `-r`.
+`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for reading from `stdin` (in this case, the input format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf))). At least one input file is required. The CRAM input format additionally requires providing a reference genome sequence in the FASTA format with `-r`.
 
-`-r, --reference FASTA` — Reference FASTA for CRAM input (or output).
+`-r, --reference FASTA` — Reference FASTA file for CRAM input (or output).
 
-### Mode (exactly one required)
+### Modes of action and their additional options
+
+Exactly one mode is required:
+
+`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more **5′-end specs** (see the [Spec grammar](#spec-grammar) below).
 
 ![pyselectal select](img/pyselectal_select.png)
 
-`-s, --select SPEC[,SPEC,...]` — Select alignments whose 5′ end matches one or more specs (see the [Spec grammar](#spec-grammar) below). Output files are named `{stem}_{spec}{ext}`. An alignment matching multiple specs is written to each corresponding output file (e.g., a `3Sg` alignment matches both `2..5Sg` and `2..6Sg` and appears in both output files). Use `--merge` to combine multiple specs into one output file per input file (`{stem}_merged{ext}`); each alignment is written only once, even if it matches multiple specs. Use `--unmatched` to additionally write alignments that do not match any spec to `{stem}_unmatched{ext}`. Use `--exclude` to invert the selection: output only alignments that do not match any spec (the complement of `--select`). `--exclude` and `--unmatched` are mutually exclusive; `--exclude` and `--merge` are mutually exclusive. A **5′-end spec** is a pattern used to select alignments by their 5′ type (see the [Spec grammar](#spec-grammar) below).
+`-c, --count` — Create a frequency histogram of all 5′-end types present in input.
 
-`-c, --count` — Scan all alignments and write a histogram of all types of 5′ ends, present in input, in a TSV format with columns `type` and `count` to `{stem}_5prime_counts.tsv`. Rows (5′ end types) are sorted by decreasing count. Types strictly below `--collapse-threshold` percent are summed up into `other_soft_clipped` and `other_mapped` rows.
-
-`-a, --all` — Write each alignment to a respective 5'-end type-specific file (`{stem}_{type}.bam`). With `-o DIR`, files are placed inside the directory `DIR`. Multiple input files are supported; each input file generates its own set of per-type output files (e.g., `foo_1sg.bam`, `bar_1sg.bam`). Unmapped alignments are silently dropped. Use `--collapse-threshold` to route rare types into `{stem}_other_soft_clipped.bam` (soft-clipped) and `{stem}_other_mapped.bam` (mapped) instead of individual per-type files.
-
-### Output
-
-By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
-
-In the output naming patterns below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`), and `{ext}` refers to the output file extension (`.bam`, `.sam`, or `.cram`).
-
-Output file naming depends on the mode:
-
-- `--select`: `{stem}_{spec}{ext}` per spec;
-- `--select --unmatched`: additionally writes `{stem}_unmatched{ext}`;
-- `--select --merge`: `{stem}_merged{ext}` per input file;
-- `--select --merge --unmatched`: additionally writes `{stem}_unmatched{ext}` per input file;
-- `--select --exclude`: `{stem}_excluded{ext}` per input file;
-- `--count`: `{stem}_5prime_counts.tsv` per input file;
-- `--all`: `{stem}_{type}{ext}` per 5′ end type, per input file.
-
-`-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
-
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r` (see above).
+`-a, --all` — Write each alignment to a respective 5'-end type-specific file.
 
 ### Selection modifiers
 
@@ -169,7 +151,27 @@ Output file naming depends on the mode:
 
 `--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows (`--count`) or into `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam` (`--all`) (default: 1; 0 = off).
 
-### Informational
+### Output
+
+By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
+
+In the output naming patterns below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`), and `{ext}` refers to the output file extension (`.bam`, `.sam`, or `.cram`).
+
+Output file naming depends on the mode:
+
+- `--select`: `{stem}_{spec}{ext}` per spec;
+- `--select --unmatched`: additionally writes `{stem}_unmatched{ext}`;
+- `--select --merge`: `{stem}_merged{ext}` per input file;
+- `--select --merge --unmatched`: additionally writes `{stem}_unmatched{ext}` per input file;
+- `--select --exclude`: `{stem}_excluded{ext}` per input file;
+- `--count`: `{stem}_5prime_counts.tsv` per input file;
+- `--all`: `{stem}_{type}{ext}` per 5′ end type, per input file.
+
+`-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
+
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r` (see above).
+
+### General
 
 `-h, --help` — Display a full manual and exit.
 
@@ -177,7 +179,7 @@ Output file naming depends on the mode:
 
 ## Spec grammar
 
-A spec describes a 5′ end type as `[n|n..|..m|n..m]<S|M>[pattern]` (case-insensitive; `<>` = required):
+A spec describes a 5′-end type as `[n|n..|..m|n..m]<S|M>[pattern]` (case-insensitive; `<>` = required):
 
 | Part | Meaning |
 | --- | --- |
