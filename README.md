@@ -113,7 +113,7 @@ Detailed descriptions of available options are grouped by topic.
 
 ### Input
 
-`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for reading from `stdin` (in this case, the input format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf))). At least one input file is required. The CRAM input format additionally requires providing a reference genome sequence in the FASTA format with `-r`.
+`-i, --input FILE[,FILE,...]` — Comma-separated alignment file(s). The file format is auto-detected from the extension (`.bam`, `.sam` or `.cram`). Use `-` for reading from `stdin` (in this case, the input format is auto-detected by magic bytes ([SAM/BAM](https://samtools.github.io/hts-specs/SAMv1.pdf), [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf))). At least one input file is required. The CRAM input format additionally requires providing a reference genome sequence in the FASTA format with `--reference`.
 
 `-r, --reference FASTA` — Reference FASTA file for CRAM input (or output).
 
@@ -131,45 +131,41 @@ Exactly one mode is required:
 
 ### Selection modifiers
 
-`-m, --merge` — With `--select` and multiple specs, write all matches to one output file instead of one file per spec.
+`-m, --merge` — With `--select` and multiple specs, write all matched alignments to one output file instead of one file per spec. If several input files are provided, then for each of them there will be one output file with all matched alignments.
 
-`-u, --unmatched` — Write alignments that do not match any spec to a separate auto-named file (`{stem}_unmatched{ext}`). Only valid with `--select`. Not affected by `-o`. Incompatible with `-x/--exclude`.
+`-u, --unmatched [FILE]` — Write alignments that do not match any spec to a separate auto-named file (or to a FILE if provided). Requires `--select`. Not affected by `--output`. Incompatible with `--exclude`.
 
-`-f, --unmatched-file FILE` — Write non-matching alignments to FILE instead of auto-naming. Implies `-u/--unmatched`.
-
-`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Output is written to `{stem}_excluded{ext}` per input file. Only valid with `--select`. Incompatible with `-m/--merge` and `-u/--unmatched`.
+`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Requires `--select`. Incompatible with `--merge` and `--unmatched`.
 
 ### Processing
 
-`-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, pyselectal name-sorts the input before processing.
+`-n, --no-name-sort` — Skip internal name sorting (use if input is already name-sorted). By default, `pyselectal` name-sorts input before processing.
 
 `-t, --threads N` — BGZF compression/decompression threads (default: 1).
 
-`-p, --paired` — Paired-end mode: selection is applied to R1; R2 mates corresponding to selected R1 mates are included automatically if mapped.
+`-p, --paired` — Paired-end mode: selection is applied to forward-read alignments; alignments of reverse mates corresponding to selected forward mates are included automatically.
 
-`--mapped-prefix N` — Number of 5′ matched bases to show in `--count` output (default: 5; 0 = length only).
+`--mapped-prefix N` — Number of 5′ matched bases to show in the `--count` output (default: 5). If $N=0$, the fequencies of matched 5' ends are calculated per matched length, irrespectively of the sequence. Requires `--count`.
 
-`--collapse-threshold PCT` — Collapse 5′ end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows (`--count`) or into `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam` (`--all`) (default: 1; 0 = off).
+`--collapse-threshold PCT` — Collapse 5′-end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows of the historgram (if `-c/--count` is set) or into respective autonamed outputfiles (if `--all` is set) (default: 1). If $\mathrm{PCT}=0$, do not collapse any 5′-end types.
 
 ### Output
 
-By default, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. Use `-S` (SAM), `-B` (BAM), or `-C` (CRAM) to force a single format for all outputs; `-C` requires `-r/--reference`. The output file extension is adjusted accordingly (e.g., forcing SAM output produces `{stem}_{spec}.sam` instead of `.bam`).
-
-In the output naming patterns below, `{stem}` refers to the input filename without its extension (e.g., `sample.bam` → `sample`), and `{ext}` refers to the output file extension (`.bam`, `.sam`, or `.cram`).
-
-Output file naming depends on the mode:
-
-- `--select`: `{stem}_{spec}{ext}` per spec;
-- `--select --unmatched`: additionally writes `{stem}_unmatched{ext}`;
-- `--select --merge`: `{stem}_merged{ext}` per input file;
-- `--select --merge --unmatched`: additionally writes `{stem}_unmatched{ext}` per input file;
-- `--select --exclude`: `{stem}_excluded{ext}` per input file;
-- `--count`: `{stem}_5prime_counts.tsv` per input file;
-- `--all`: `{stem}_{type}{ext}` per 5′ end type, per input file.
+By default, output files are named automatically, based on the names and formats of input files. For `--select` and `--all`, the output format matches the input format; with multiple input files in different formats, each output inherits its corresponding input's format. In autogenerated output file names, `{stem}` refers to the input file name without its extension (e.g., the stem of `sample.bam` is `sample`), and `{ext}` refers to the output file extension (`bam`, `sam`, or `cram`).
 
 `-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
 
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `-r` (see above).
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `--reference` (see [Input](#input)). The output file extension is adjusted accordingly (e.g., forcing SAM output on `sample.bam` produces `{stem}_{spec}.sam`).
+
+Output file naming depends on the mode and additional options:
+
+- `--select`: `{stem}_{spec}.{ext}` per spec, per input file.
+- `--select --unmatched`: additionally writes `{stem}_unmatched.{ext}`.
+- `--select --merge`: `{stem}_merged.{ext}` per input file.
+- `--select --merge --unmatched`: additionally writes `{stem}_unmatched.{ext}` per input file.
+- `--select --exclude`: `{stem}_excluded.{ext}` per input file.
+- `--count`: `{stem}_5prime_counts.tsv` per input file.
+- `--all`: `{stem}_{type}.{ext}` per 5′-end type, per input file.
 
 ### General
 
