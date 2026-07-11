@@ -327,16 +327,6 @@ pyselectal.py -i sample1.bam,sample2.bam --all -o out_dir/
 samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select Sg -r ref.fa -o out.cram
 ```
 
-## Testing
-
-The project uses [pytest](https://docs.pytest.org/) for automated testing. To run the full test suite:
-
-```bash
-python -m pytest test_pyselectal.py -v
-```
-
-All tests are contained in `test_pyselectal.py` and cover spec parsing, alignment matching, single-end / paired-end alignment processing and end-to-end execution.
-
 ## Resource usage
 
 Benchmarks on three SE BAM files with 5 million alignments each (Intel Xeon Processor Icelake, ~2 GHz):
@@ -354,6 +344,16 @@ Notes:
 - `--all` takes roughly twice as long because it performs two passes over the input (first to count types for `--collapse-threshold`, then to route alignments).
 - Memory usage is stable regardless of mode and input size, since `pyselectal` processes alignments in a streaming fashion (paired-end mode buffers one read group at a time).
 - Processing is **single-threaded** (~95–99% CPU utilization); the `-t/--threads` option only affects BGZF compression / decompression, not the main processing loop.
+
+## Testing
+
+The project uses [pytest](https://docs.pytest.org/) for automated testing. To run the full test suite:
+
+```bash
+python -m pytest test_pyselectal.py -v
+```
+
+All tests are contained in `test_pyselectal.py` and cover spec parsing, alignment matching, single-end / paired-end alignment processing and end-to-end execution.
 
 ## Test data
 
