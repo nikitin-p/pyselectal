@@ -109,7 +109,7 @@ tool | pyselectal.py -i - <mode> [optional arguments]
 
 ## Options
 
-Detailed descriptions of available options are grouped by topic.
+Detailed descriptions of available options below are grouped by topic. See [Output](#output) for the specificiations of output files generated when using different options and option combinations.
 
 ### Input
 
@@ -176,7 +176,7 @@ Output file naming depends on the mode and additional options:
 
 ## Spec grammar
 
-A spec describes a set of 5′-end types as `[n|n..|..m|n..m]<S|M>[pattern]`. Specs are case-insensitive. Either operator `S` (soft-clip) or `M` (match) is required. Numbers `n` and `m` limit the length of 5′ ends that satisfy the operator and sequence pattern (if a pattern is set). A s
+A spec describes a set of 5′-end types as `[n|n..|..m|n..m]<S|M>[pattern]`: 
 
 | Part | Meaning |
 | --- | --- |
@@ -188,11 +188,11 @@ A spec describes a set of 5′-end types as `[n|n..|..m|n..m]<S|M>[pattern]`. Sp
 | `..m` | At most `m` bases |
 | `pattern` | A pattern that *the whole* 5′-end sequence, governed by an `S` or `M` operator, should satisfy |
 
-Sequence pattern (literal or [Python regular expression](https://docs.python.org/3/library/re.html#regular-expression-syntax), matched via `re.fullmatch()`)
+Specs are case-insensitive. Either operator `S` (soft-clip) or `M` (match) is required. Numbers `n` and `m` limit the length of 5′ ends that satisfy the operator and sequence pattern (if a pattern is set).
 
-A `pattern` can be a literal sequence (`g`, `ttc`) or use Python regular expression (regex) syntax (for example, `g+`, `g.c`, `[acgt]+`). The entire 5′-end sequence under the given operator must match the `pattern` (Python `re.fullmatch()` semantics). Reverse-strand alignments are handled automatically: the sequence is reverse-complemented before matching.
+A `pattern` can be a literal sequence (`g`, `ttc`) or a [Python regular expression](https://docs.python.org/3/library/re.html#regular-expression-syntax) (regex; for example, `g+`, `g.c` or `[acgt]+`). The entire 5′-end sequence under a given operator must match the `pattern` (Python [`re.fullmatch()`](https://docs.python.org/3/library/re.html#re.fullmatch) semantics). Reverse-strand alignments are handled automatically: the sequence is reverse-complemented before matching.
 
-If the `pattern` is a literal (no Python regex metacharacters), the required length of the 5′-end sequence is inferred from the `pattern` itself: for instance, `Sg` equals `1Sg` and `Sttc` equals `3Sttc`. When the `pattern` is a Python regex, an optional quantifier controls the acceptable length of matches.
+If the `pattern` is a literal (no Python regex metacharacters), the required length of the 5′-end sequence is inferred from the `pattern` itself. For instance, `Sg` equals `1Sg` and `Sttc` equals `3Sttc`. When a `pattern` is a Python regex, an optional quantifier (see `n` and `m` above) controls the acceptable length of matches.
 
 Examples:
 
