@@ -125,7 +125,7 @@ Exactly one mode is required:
 
 ![pyselectal select](img/pyselectal_select.png)
 
-`-c, --count` — Create a frequency histogram of all 5′-end types present in input.
+`-c, --count` — Create a frequency histogram of all 5′-end types present in input. It is written in a TSV format with columns `type` and `count`. Rows (5′-end types) are sorted by decreasing count.
 
 `-a, --all` — Write each alignment to a respective 5′-end type-specific file.
 
@@ -147,7 +147,7 @@ Exactly one mode is required:
 
 `--mapped-prefix N` — Number of 5′ matched bases to show in the `--count` output (default: 5). If $N=0$, the fequencies of matched 5′ ends are calculated per matched length, irrespectively of the sequence. Requires `--count`.
 
-`--collapse-threshold PCT` — Collapse 5′-end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows of the historgram (if `-c/--count` is set) or into respective autonamed outputfiles (if `--all` is set) (default: 1). If $\mathrm{PCT}=0$, do not collapse any 5′-end types.
+`--collapse-threshold PCT` — Collapse 5′-end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows of the frequency historgram (if `-c/--count` is set) or into respective automatically named output files (if `--all` is set) (default: 1). If $\mathrm{PCT}=0$, do not collapse any 5′-end types.
 
 ### Output
 
@@ -155,17 +155,18 @@ By default, output files are named automatically, based on the names and formats
 
 `-o, --output PATH` — Output file path (for `--select` and `--count`) or directory (for `--all`). Overrides automatic naming.
 
-`-S, --sam` / `-B, --bam` / `-C, --cram` — Force output format. Default: matches input format. `-C` requires `--reference` (see [Input](#input)). The output file extension is adjusted accordingly (e.g., forcing SAM output on `sample.bam` produces `{stem}_{spec}.sam`).
+`-S, --sam` / `-B, --bam` / `-C, --cram` — Force a single output format for all output files. `-C` requires `--reference` (see [Input](#input)). The output file extension is adjusted accordingly (e.g., forcing SAM output on `sample.bam` produces `{stem}_{spec}.sam`).
 
 Output file naming depends on the mode and additional options:
 
 - `--select`: `{stem}_{spec}.{ext}` per spec, per input file.
-- `--select --unmatched`: additionally writes `{stem}_unmatched.{ext}`.
+- `--select --unmatched`: Additionally writes `{stem}_unmatched.{ext}`.
 - `--select --merge`: `{stem}_merged.{ext}` per input file.
-- `--select --merge --unmatched`: additionally writes `{stem}_unmatched.{ext}` per input file.
+- `--select --merge --unmatched`: Additionally writes `{stem}_unmatched.{ext}` per input file.
 - `--select --exclude`: `{stem}_excluded.{ext}` per input file.
 - `--count`: `{stem}_5prime_counts.tsv` per input file.
 - `--all`: `{stem}_{type}.{ext}` per 5′-end type, per input file.
+- `--all --collapse-threshold PCT`: Additionally writes `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam`.
 
 ### General
 
