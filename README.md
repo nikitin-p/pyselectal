@@ -208,26 +208,26 @@ Spec examples:
 | `2..5S` | From 2–5 soft-clipped bases |
 | `3..M` | At least 3 matched bases |
 | `..4S` | Up to 4 soft-clipped bases (inclusive) |
-| `Sg` | Exactly 1 soft-clipped G (equals `1Sg`) |
-| `Ma` | Exactly 1 matched A (equals `1Ma`) |
-| `Sttc` | Soft-clipped TTC (equals `3Sttc`) |
-| `Maat` | Matched AAT (equals `3Maat`) |
+| `Sg` | Exactly 1 soft-clipped `G` (equals `1Sg`) |
+| `Ma` | Exactly 1 matched `A` (equals `1Ma`) |
+| `Sttc` | Soft-clipped `TTC` (equals `3Sttc`) |
+| `Maat` | Matched `AAT` (equals `3Maat`) |
 | `2Ma` | Empty — pattern `a` is 1 base but matched 2 bases are required |
 | `2..3Sa` | Empty — pattern `a` is 1 base but from 2–3 soft-clipped bases are required |
 | `2..3Saa` | Equals `Saa` — the `2..3` quantifier is redundant with a literal pattern |
-| `Sg+` | Soft-clipped G-homopolymer of length 1 or more |
-| `..5Sg+` | Soft-clipped G-homopolymer of length from 1–5 |
-| `Mac+t` | Matched 5′ end ACT, ACCT, ACCCT, ... |
-| `..4Mac+t` | Only ACT or ACCT (the length of a match is required to be at most 4) |
-| `Sg.c` | Soft-clipped GAC, GGC, GCC or GTC |
+| `Sg+` | Soft-clipped `G`-homopolymer of length 1 or more |
+| `..5Sg+` | Soft-clipped `G`-homopolymer of length from 1–5 |
+| `Mac+t` | Matched 5′ end `ACT`, `ACCT`, `ACCCT`, ... |
+| `..4Mac+t` | Only `ACT` or `ACCT` (the length of a match is required to be at most 4) |
+| `Sg.c` | Soft-clipped `GAC`, `GGC`, `GCC` or `GTC` |
 | `4Sg.c` | Empty — regex `g.c` matches length 3, but length 4 is required |
-| `Sg[ga]c` | Soft-clipped GGC or GAC |
-| `3..4Sca+g` | Soft-clipped CAG or CAAG |
-| `4Sca+g` | Soft-clipped CAAG |
+| `Sg[ga]c` | Soft-clipped `GGC` or `GAC` |
+| `3..4Sca+g` | Soft-clipped `CAG` or `CAAG` |
+| `4Sca+g` | Soft-clipped `CAAG` |
 
 ## Examples
 
-1. Select single-end CAGE alignments with exactly 1 soft-clipped `G` at the 5′ end (cap-dependent G):
+1. Select single-end CAGE alignments with exactly 1 soft-clipped `G` at the 5′ end (cap-dependent `G`):
 
 ```bash
 pyselectal.py -i in.bam --select Sg
@@ -273,7 +273,7 @@ pyselectal.py -i in.bam --select Mgg
 pyselectal.py -i in.bam --select 10..M -o out.bam && samtools view -c out.bam
 ```
 
-8. Select alignments with 1 soft-clipped G at the 5′ end and save unmatched alignments to a separate file:
+8. Select alignments with 1 soft-clipped `G` at the 5′ end and save unmatched alignments to a separate file:
 
 ```bash
 pyselectal.py -i in.bam -s Sg -u
@@ -287,7 +287,7 @@ pyselectal.py -i in.bam -s Sg -u rejected.bam
 # output: in_sg.bam (matched alignments), rejected.bam (unmatched alignments)
 ```
 
-10. Exclude single-end alignments with exactly 1 soft-clipped G at the 5′ end:
+10. Exclude single-end alignments with exactly 1 soft-clipped `G` at the 5′ end:
 
 ```bash
 pyselectal.py -i in.bam -s Sg -x
