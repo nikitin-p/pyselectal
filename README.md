@@ -10,10 +10,13 @@ Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for f
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Description](#description)
+- [Options summary](#options-summary)
 - [Options](#options)
+- [Spec grammar](#spec-grammar)
 - [Examples](#examples)
-- [Testing](#testing)
 - [Resource usage](#resource-usage)
+- [Testing](#testing)
 - [Test data](#test-data)
 - [Citation](#citation)
 
@@ -194,7 +197,7 @@ A `pattern` can be a literal sequence (`g`, `ttc`) or a [Python regular expressi
 
 If the `pattern` is a literal (no Python regex metacharacters), the required length of the 5′-end sequence is inferred from the `pattern` itself. For instance, `Sg` equals `1Sg` and `Sttc` equals `3Sttc`. When a `pattern` is a Python regex, an optional quantifier (see `n` and `m` above) controls the acceptable length of matches.
 
-Examples:
+Spec examples:
 
 | Spec | Set of matching 5′ ends |
 | --- | --- |
