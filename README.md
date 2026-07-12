@@ -1,6 +1,6 @@
 # pyselectal
 
-Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format by the length and sequence of the soft-clipped or mapped 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5′-end pattern, profile the distribution of 5′-end types or split an alignment file per 5′-end type.
+Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format by the length and sequence of the soft-clipped or matched 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5′-end pattern, profile the distribution of 5′-end types or split an alignment file per 5′-end type.
 
 ![pyselectal overview](img/pyselectal_overview.png)
 
@@ -24,7 +24,7 @@ Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for f
 
 Pyselectal is conceptually inspired by the alignment filtering strategy described in [Oguchi *et al.*, 2024](https://www.science.org/doi/10.1126/science.add8394), where transcription start sites (TSSs) were inferred from the precise 5′-end positions of 5′ single-cell RNA-seq reads. Specifically, Oguchi and colleagues distinguished transcription initiation from other events by the presence of the characteristic 5′ soft-clipped cap-dependent base `G` added by the reverse transcriptase during template switching.
 
-Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping or mapping patterns, as well as optional 5′-end sequence constraints. While sequencing method-agnostic, `pyselectal` is particularly useful for CAGE ([Shiraki *et al.*, 2003](https://pubmed.ncbi.nlm.nih.gov/14663149/); [Murata *et al.*, 2014](https://pubmed.ncbi.nlm.nih.gov/24927836/)), nanoCAGE ([Salimullah *et al.*, 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC4181851/)), CAGEscan ([Bertin *et al.*, 2017](https://pubmed.ncbi.nlm.nih.gov/28972578/)) and other 5′-end-focused RNA sequencing experiments, both bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
+Building on this approach, our tool enables general alignment filtering based on 5′-end soft-clipping or reference matching patterns, as well as optional 5′-end sequence constraints. While sequencing method-agnostic, `pyselectal` is particularly useful for CAGE ([Shiraki *et al.*, 2003](https://pubmed.ncbi.nlm.nih.gov/14663149/); [Murata *et al.*, 2014](https://pubmed.ncbi.nlm.nih.gov/24927836/)), nanoCAGE ([Salimullah *et al.*, 2011](https://pmc.ncbi.nlm.nih.gov/articles/PMC4181851/)), CAGEscan ([Bertin *et al.*, 2017](https://pubmed.ncbi.nlm.nih.gov/28972578/)) and other 5′-end-focused RNA sequencing experiments, both bulk and single-cell protocols, where precise control over the structure of the 5′-end alignment is critical for downstream analyses.
 
 ## Requirements
 
@@ -104,7 +104,7 @@ tool | pyselectal.py -i - <mode> [optional arguments]
 -B, --bam                     force BAM output
 -C, --cram                    force CRAM output
 -r, --reference FASTA         reference for CRAM
---mapped-prefix N             number of matched bases in --count
+--matched-prefix N            number of matched bases in --count
 --collapse-threshold PCT      collapse rare 5′-end types
 -h, --help                    show help
 -v, --version                 show version
@@ -148,9 +148,9 @@ Exactly one mode is required:
 
 `-p, --paired` — Paired-end mode: selection is applied to forward-read alignments; alignments of reverse mates corresponding to selected forward mates are included automatically.
 
-`--mapped-prefix N` — Number of 5′ matched bases to show in the `--count` output (default: 5). If $N=0$, the fequencies of matched 5′ ends are calculated per matched length, irrespectively of the sequence. Requires `--count`.
+`--matched-prefix N` — Number of 5′ matched bases to show in the `--count` output (default: 5). If $N=0$, the fequencies of matched 5′ ends are calculated per matched length, irrespectively of the sequence. Requires `--count`.
 
-`--collapse-threshold PCT` — Collapse 5′-end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_mapped` rows of the frequency historgram (if `-c/--count` is set) or into respective automatically named output files (if `--all` is set) (default: 1). If $\mathrm{PCT}=0$, do not collapse any 5′-end types.
+`--collapse-threshold PCT` — Collapse 5′-end types strictly below PCT% of the total number of alignments into `other_soft_clipped` and `other_matched` rows of the frequency historgram (if `-c/--count` is set) or into respective automatically named output files (if `--all` is set) (default: 1). If $\mathrm{PCT}=0$, do not collapse any 5′-end types.
 
 ### Output
 
@@ -169,7 +169,7 @@ Output file naming depends on the mode and additional options:
 - `--select --exclude`: `{stem}_excluded.{ext}` per input file.
 - `--count`: `{stem}_5prime_counts.tsv` per input file.
 - `--all`: `{stem}_{type}.{ext}` per 5′-end type, per input file.
-- `--all --collapse-threshold PCT`: Additionally writes `{stem}_other_soft_clipped.bam` / `{stem}_other_mapped.bam`.
+- `--all --collapse-threshold PCT`: Additionally writes `{stem}_other_soft_clipped.bam` / `{stem}_other_matched.bam`.
 
 ### General
 
@@ -189,11 +189,11 @@ A spec describes a set of 5′-end types as `[n|n..|..m|n..m]<S|M>[pattern]`:
 | `n..m` | Between `n` and `m` bases (inclusive) |
 | `n..` | At least `n` bases |
 | `..m` | At most `m` bases |
-| `pattern` | A pattern that *the whole* 5′-end sequence, governed by an `S` or `M` operator, should satisfy |
+| `pattern` | A pattern that *the whole* 5′-end sequence, governed by an `S` or `M` operation, should satisfy |
 
-Specs are case-insensitive. Either operator `S` (soft-clip) or `M` (match) is required. Numbers `n` and `m` limit the length of 5′ ends that satisfy the operator and sequence pattern (if a pattern is set).
+Specs are case-insensitive. Either operation `S` (soft-clip) or `M` (match) is required. Numbers `n` and `m` limit the length of 5′ ends that satisfy the operation and sequence pattern (if a pattern is set).
 
-A `pattern` can be a literal sequence (`g`, `ttc`) or a [Python regular expression](https://docs.python.org/3/library/re.html#regular-expression-syntax) (regex; for example, `g+`, `g.c` or `[acgt]+`). The entire 5′-end sequence under a given operator must match the `pattern` (Python [`re.fullmatch()`](https://docs.python.org/3/library/re.html#re.fullmatch) semantics). Reverse-strand alignments are handled automatically: the sequence is reverse-complemented before matching.
+A `pattern` can be a literal sequence (`g`, `ttc`) or a [Python regular expression](https://docs.python.org/3/library/re.html#regular-expression-syntax) (regex; for example, `g+`, `g.c` or `[acgt]+`). The entire 5′-end sequence under a given operation must match the `pattern` (Python [`re.fullmatch()`](https://docs.python.org/3/library/re.html#re.fullmatch) semantics). Reverse-strand alignments are handled automatically: the sequence is reverse-complemented before matching.
 
 If the `pattern` is a literal (no Python regex metacharacters), the required length of the 5′-end sequence is inferred from the `pattern` itself. For instance, `Sg` equals `1Sg` and `Sttc` equals `3Sttc`. When a `pattern` is a Python regex, an optional quantifier (see `n` and `m` above) controls the acceptable length of matches.
 
@@ -260,7 +260,7 @@ pyselectal.py -i in1.bam,in2.cram -r ref.fa --select Sa,Sc
 pyselectal.py -i in.bam --select Sg,Sgg --merge -o out.bam
 ```
 
-6. Select single-end alignments with a mapped 5′ end `GG`:
+6. Select single-end alignments with a matched 5′ end `GG`:
 
 ```bash
 pyselectal.py -i in.bam --select Mgg
@@ -307,13 +307,13 @@ pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x non_g.bam
 pyselectal.py -i in.bam --count -o counts.tsv
 ```
 
-13. Write each alignment to a separate file by its 5′-end type and place the output files into `out_dir/`. Types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_mapped.bam`:
+13. Write each alignment to a separate file by its 5′-end type and place the output files into `out_dir/`. Types accounting for less than 1% of alignments are routed to `in_other_soft_clipped.bam` or `in_other_matched.bam`:
 
 ```bash
 pyselectal.py -i in.bam --all -o out_dir/
 ```
 
-14. As above, but 5′-end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_mapped.bam`, instead of individual files:
+14. As above, but 5′-end types accounting for less than 5% of alignments are written to `out_dir/in_other_soft_clipped.bam` or `out_dir/in_other_matched.bam`, instead of individual files:
 
 ```bash
 pyselectal.py -i in.bam --all --collapse-threshold 5 -o out_dir/
@@ -369,7 +369,7 @@ These files are intended for testing, debugging and illustrating tool behaviour,
 A test BAM file containing a curated set of single-end alignments with diverse 5′-end configurations:
 
 - Alignments with **5′ soft-clips** of varying lengths (`1S`, `2S`, `3S`, `4S`).
-- Alignments with **mapped 5′-ends** and **soft-clipping at the 3′ end**.
+- Alignments with **matched 5′-ends** and **soft-clipping at the 3′ end**.
 - Alignments on both plus and minus strands.
 - Homopolymer soft-clips (`G` or `C`) suitable for testing range-based selection.
 - Multiple alignments per query to ensure that selection depends only on the CIGAR string structure and sequence content, not on mapping multiplicity.
@@ -379,7 +379,7 @@ A test BAM file containing a curated set of single-end alignments with diverse 5
 A test BAM file containing paired-end alignments grouped by query name and matching various conditions:
 
 - R1 has a 5′ soft-clip.
-- R1 has a mapped 5′ end.
+- R1 has a matched 5′ end.
 - R1 has multiple alternative alignments.
 - R1 alignment is associated with more than one R2 alignment.
 
