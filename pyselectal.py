@@ -456,6 +456,11 @@ def parse_args(argv):
         if u_path == o_path:
             parser.error("-u/--unmatched and -o/--output cannot specify the same file.")
 
+    # -o with multiple --select specs requires --merge or --exclude (otherwise files would overwrite)
+    if (args.output is not None and args.select is not None
+            and len(args.select.split(",")) > 1 and not args.merge and not args.exclude):
+        parser.error("-o/--output with multiple --select specs requires -m/--merge or -x/--exclude.")
+
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
 
@@ -464,6 +469,10 @@ def parse_args(argv):
 
     if args.mapped_prefix < 0:
         parser.error("--mapped-prefix must be >= 0.")
+
+    # --mapped-prefix only with --count or --all
+    if args.mapped_prefix != 5 and args.select is not None:
+        parser.error("--mapped-prefix can only be used with -c/--count or -a/--all.")
 
     if args.cram and not args.reference:
         parser.error("-C/--cram requires -r/--reference.")
@@ -697,12 +706,24 @@ def process_select_multi_pe(in_bam, spec_out_pairs, unmatched_bam=None):
         _route_pe_group(group, route, unmatched_bam)
 
 
-def _select_output_path(in_path, spec, args, out_fmt):
-    """Determine output path for a --select run."""
+def _is_filename_safe(s):
+    """Return True if s contains only alphanumerics, hyphens, underscores, and dots (including ..)."""
+    import re
+    return bool(re.fullmatch(r'[A-Za-z0-9._-]+', s))
+
+
+def _select_output_path(in_path, spec, spec_index, args, out_fmt):
+    """Determine output path for a --select run.
+
+    spec_index is the 1-based position in the spec list, used when the raw spec
+    contains characters unsafe for filenames (regex metacharacters).
+    """
     if args.output:
         return args.output
     stem = os.path.splitext(os.path.basename(in_path))[0]
-    return f"{stem}_{spec['raw']}{_fmt_ext(out_fmt)}"
+    raw = spec['raw']
+    suffix = raw if _is_filename_safe(raw) else f"spec{spec_index}"
+    return f"{stem}_{suffix}{_fmt_ext(out_fmt)}"
 
 
 def _merge_output_path(in_path, args, out_fmt):
@@ -849,13 +870,13 @@ def run_select(args):
                 # Single pass: all specs + one unmatched file for reads matching no spec.
                 spec_out_pairs = []
                 unmatched_bam = None
-                first_out_path = _select_output_path(in_path, specs[0], args, out_fmt)
+                first_out_path = _select_output_path(in_path, specs[0], 1, args, out_fmt)
                 in_bam, first_out_bam = open_alignment_files(
                     actual_in, first_out_path, args.threads, in_fmt, out_fmt, args.reference)
                 spec_out_pairs.append((specs[0], first_out_bam))
                 try:
-                    for spec in specs[1:]:
-                        out_path = _select_output_path(in_path, spec, args, out_fmt)
+                    for i, spec in enumerate(specs[1:], start=2):
+                        out_path = _select_output_path(in_path, spec, i, args, out_fmt)
                         spec_out_pairs.append(
                             (spec, _open_unmatched_bam(out_path, in_bam, out_fmt,
                                                        args.threads, args.reference)))
@@ -874,8 +895,8 @@ def run_select(args):
                         unmatched_bam.close()
                     in_bam.close()
             else:
-                for spec in specs:
-                    out_path = _select_output_path(in_path, spec, args, out_fmt)
+                for i, spec in enumerate(specs, start=1):
+                    out_path = _select_output_path(in_path, spec, i, args, out_fmt)
                     in_bam, out_bam = open_alignment_files(
                         actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
                     try:

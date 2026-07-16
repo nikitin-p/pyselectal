@@ -9,7 +9,7 @@ from unittest import mock
 from pyselectal import (
     parse_args, parse_spec, spec_matches_aln, classify_5prime_type, write_count_tsv,
     main, VERSION, _detect_format, _spool_and_detect_stdin,
-    has_5prime_op,
+    has_5prime_op, _is_filename_safe, _select_output_path,
 )
 
 SE_BAM = os.path.join(os.path.dirname(__file__), "testdata", "test_softclip_se.bam")
@@ -1687,3 +1687,49 @@ class TestCRAMStdin:
         with pysam.AlignmentFile(out, "rb") as f:
             count = sum(1 for _ in f.fetch(until_eof=True))
         assert count == 1
+
+
+class TestFilenameSpec:
+    """Test output filename handling for specs with regex characters."""
+
+    def test_is_filename_safe_simple_spec(self):
+        assert _is_filename_safe("1sg")
+        assert _is_filename_safe("2..5s")
+        assert _is_filename_safe("3mggg")
+        assert _is_filename_safe("2-5s")
+
+    def test_is_filename_safe_rejects_regex_chars(self):
+        assert not _is_filename_safe("sg+")
+        assert not _is_filename_safe("sg[at]+")
+        assert not _is_filename_safe("2..5sg.+")
+        assert not _is_filename_safe("ma*")
+        assert not _is_filename_safe("s(a|t)")
+        assert not _is_filename_safe("s?")
+
+    def test_select_output_path_safe_spec(self):
+        """Safe specs are embedded as-is in output filename (lowercase)."""
+        spec = parse_spec("1Sg")
+        args = type("Args", (), {"output": None})()
+        result = _select_output_path("/path/sample.bam", spec, 1, args, "bam")
+        assert result == "sample_1sg.bam"
+
+    def test_select_output_path_unsafe_spec(self):
+        """Unsafe specs get indexed filename."""
+        spec = parse_spec("Sg+")
+        args = type("Args", (), {"output": None})()
+        result = _select_output_path("/path/sample.bam", spec, 1, args, "bam")
+        assert result == "sample_spec1.bam"
+
+    def test_select_output_path_unsafe_spec_index(self):
+        """Index reflects position in spec list."""
+        spec = parse_spec("2..5Sg[at]+")
+        args = type("Args", (), {"output": None})()
+        result = _select_output_path("/path/sample.bam", spec, 3, args, "bam")
+        assert result == "sample_spec3.bam"
+
+    def test_select_multi_specs_mixed_safety(self, tmp_path):
+        """End-to-end: mixed safe/unsafe specs produce correct filenames."""
+        os.chdir(str(tmp_path))
+        main(["-i", SE_BAM, "-s", "1Sg,Sg+"])
+        assert os.path.isfile(str(tmp_path / "test_softclip_se_1sg.bam"))
+        assert os.path.isfile(str(tmp_path / "test_softclip_se_spec2.bam"))
