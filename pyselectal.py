@@ -17,7 +17,7 @@ Options:
   -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
   -u, --unmatched [FILE]         Write non-matching alignments to FILE (or auto-named if omitted)
-  -x, --exclude                  Invert selection: output alignments matching none of the specs
+  -x, --exclude [FILE]           Invert selection: output alignments matching none of the specs
   -n, --no-name-sort             Skip internal name sorting (input already name-sorted)
   -t, --threads N                BGZF threads (default: 1)
   -p, --paired                   Paired-end mode
@@ -381,7 +381,8 @@ def parse_args(argv):
     parser.add_argument("-u", "--unmatched", nargs="?", const=True, default=None,
                         metavar="FILE",
                         help="Write non-matching alignments to FILE (or auto-named if omitted).")
-    parser.add_argument("-x", "--exclude", action="store_true",
+    parser.add_argument("-x", "--exclude", nargs="?", const=True, default=None,
+                        metavar="FILE",
                         help="Invert selection: output alignments matching none of the specs.")
     parser.add_argument("-n", "--no-name-sort", action="store_true",
                         help="Skip internal name sorting (use if input is already name-sorted).")
@@ -448,11 +449,11 @@ def parse_args(argv):
         parser.error("-u/--unmatched can only be used with -s/--select.")
 
     # --exclude only with --select; incompatible with --merge and --unmatched
-    if args.exclude and args.select is None:
+    if args.exclude is not None and args.select is None:
         parser.error("-x/--exclude can only be used with -s/--select.")
-    if args.exclude and args.merge:
+    if args.exclude is not None and args.merge:
         parser.error("-x/--exclude and -m/--merge are mutually exclusive.")
-    if args.exclude and args.unmatched is not None:
+    if args.exclude is not None and args.unmatched is not None:
         parser.error("-x/--exclude and -u/--unmatched are mutually exclusive.")
 
     # Prevent filename conflict between -u FILE and -o FILE
@@ -463,9 +464,17 @@ def parse_args(argv):
         if u_path == o_path:
             parser.error("-u/--unmatched and -o/--output cannot specify the same file.")
 
+    # Prevent filename conflict between -x FILE and -o FILE
+    if (args.exclude is not None and args.exclude is not True
+            and args.output is not None):
+        x_path = os.path.abspath(args.exclude)
+        o_path = os.path.abspath(args.output)
+        if x_path == o_path:
+            parser.error("-x/--exclude and -o/--output cannot specify the same file.")
+
     # -o with multiple --select specs requires --merge or --exclude (otherwise files would overwrite)
     if (args.output is not None and args.select is not None
-            and len(args.select.split(",")) > 1 and not args.merge and not args.exclude):
+            and len(args.select.split(",")) > 1 and not args.merge and args.exclude is None):
         parser.error("-o/--output with multiple --select specs requires -m/--merge or -x/--exclude.")
 
     # -o with multiple input files is only valid for --all (where -o is a directory)
@@ -782,6 +791,8 @@ def process_select_merge_pe(in_bam, out_bam, specs, unmatched_bam=None):
 
 def _exclude_output_path(in_path, args, out_fmt):
     """Determine output path for a --select --exclude run."""
+    if args.exclude is not True:
+        return args.exclude
     if args.output:
         return args.output
     stem = os.path.splitext(os.path.basename(in_path))[0]
@@ -865,7 +876,7 @@ def run_select(args):
                     if unmatched_bam:
                         unmatched_bam.close()
                     in_bam.close()
-            elif args.exclude:
+            elif args.exclude is not None:
                 out_path = _exclude_output_path(in_path, args, out_fmt)
                 in_bam, out_bam = open_alignment_files(
                     actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)

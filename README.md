@@ -96,7 +96,7 @@ tool | pyselectal.py -i - <mode> [optional arguments]
 -o, --output PATH             output file or directory
 -m, --merge                   merge specs into one output
 -u, --unmatched [FILE]        write unmatched alignments (to custom FILE if set)
--x, --exclude                 invert selection
+-x, --exclude [FILE]          invert selection
 -p, --paired                  paired-end mode
 -n, --no-name-sort            skip name sorting
 -t, --threads N               number of BGZF threads
@@ -138,7 +138,7 @@ Exactly one mode is required:
 
 `-u, --unmatched [FILE]` — Write alignments that do not match any spec to a separate auto-named file (or to a FILE if provided). Requires `--select`. Not affected by `--output`. Incompatible with `--exclude`.
 
-`-x, --exclude` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`). Requires `--select`. Incompatible with `--merge` and `--unmatched`.
+`-x, --exclude [FILE]` — Invert the `--select` logic: output every alignment that matches *none* of the given specs (analogous to `grep -v`) to FILE (or auto-named `{stem}_excluded.bam` if omitted). Requires `--select`. Incompatible with `--merge` and `--unmatched`.
 
 ### Processing
 
@@ -309,7 +309,8 @@ pyselectal.py -i in.bam -s Sg -x
 12. Exclude all soft-clipped reads across multiple specs and write the result to a named file:
 
 ```bash
-pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x non_g.bam
+pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x                   # → in_excluded.bam
+pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x non_g.bam        # explicit filename
 # output: non_g.bam
 ```
 
