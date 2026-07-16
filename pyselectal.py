@@ -16,8 +16,7 @@ Options:
   -i, --input FILE[,FILE,...]    Input file(s), comma-separated; format auto-detected from extension (required)
   -o, --output PATH              Output file path / directory (overrides automatic naming)
   -m, --merge                    Merge multiple --select specs into one output
-  -u, --unmatched                Write non-matching alignments to a separate auto-named file
-  -f, --unmatched-file FILE      Write non-matching alignments to FILE (implies -u)
+  -u, --unmatched [FILE]         Write non-matching alignments to FILE (or auto-named if omitted)
   -x, --exclude                  Invert selection: output alignments matching none of the specs
   -n, --no-name-sort             Skip internal name sorting (input already name-sorted)
   -t, --threads N                BGZF threads (default: 1)
@@ -372,10 +371,9 @@ def parse_args(argv):
     # Options
     parser.add_argument("-m", "--merge", action="store_true",
                         help="Merge multiple --select specs into one output file.")
-    parser.add_argument("-u", "--unmatched", action="store_true",
-                        help="Write non-matching alignments to a separate auto-named file.")
-    parser.add_argument("-f", "--unmatched-file", type=str, default=None, metavar="FILE",
-                        help="Write non-matching alignments to FILE (implies -u).")
+    parser.add_argument("-u", "--unmatched", nargs="?", const=True, default=None,
+                        metavar="FILE",
+                        help="Write non-matching alignments to FILE (or auto-named if omitted).")
     parser.add_argument("-x", "--exclude", action="store_true",
                         help="Invert selection: output alignments matching none of the specs.")
     parser.add_argument("-n", "--no-name-sort", action="store_true",
@@ -438,12 +436,8 @@ def parse_args(argv):
     if args.merge and args.select is None:
         parser.error("-m/--merge can only be used with -s/--select.")
 
-    # -f/--unmatched-file implies -u/--unmatched
-    if args.unmatched_file:
-        args.unmatched = True
-
     # --unmatched only with --select
-    if args.unmatched and args.select is None:
+    if args.unmatched is not None and args.select is None:
         parser.error("-u/--unmatched can only be used with -s/--select.")
 
     # --exclude only with --select; incompatible with --merge and --unmatched
@@ -451,8 +445,16 @@ def parse_args(argv):
         parser.error("-x/--exclude can only be used with -s/--select.")
     if args.exclude and args.merge:
         parser.error("-x/--exclude and -m/--merge are mutually exclusive.")
-    if args.exclude and args.unmatched:
+    if args.exclude and args.unmatched is not None:
         parser.error("-x/--exclude and -u/--unmatched are mutually exclusive.")
+
+    # Prevent filename conflict between -u FILE and -o FILE
+    if (args.unmatched is not None and args.unmatched is not True
+            and args.output is not None):
+        u_path = os.path.abspath(args.unmatched)
+        o_path = os.path.abspath(args.output)
+        if u_path == o_path:
+            parser.error("-u/--unmatched and -o/--output cannot specify the same file.")
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")
@@ -816,8 +818,8 @@ def run_select(args):
                 in_bam, out_bam = open_alignment_files(
                     actual_in, out_path, args.threads, in_fmt, out_fmt, args.reference)
                 unmatched_bam = None
-                if args.unmatched:
-                    unmatched_path = (args.unmatched_file if args.unmatched_file
+                if args.unmatched is not None:
+                    unmatched_path = (args.unmatched if args.unmatched is not True
                                       else _unmatched_merge_output_path(in_path, out_fmt))
                     unmatched_bam = _open_unmatched_bam(
                         unmatched_path, in_bam, out_fmt, args.threads, args.reference)
@@ -843,7 +845,7 @@ def run_select(args):
                 finally:
                     out_bam.close()
                     in_bam.close()
-            elif args.unmatched:
+            elif args.unmatched is not None:
                 # Single pass: all specs + one unmatched file for reads matching no spec.
                 spec_out_pairs = []
                 unmatched_bam = None
@@ -857,7 +859,7 @@ def run_select(args):
                         spec_out_pairs.append(
                             (spec, _open_unmatched_bam(out_path, in_bam, out_fmt,
                                                        args.threads, args.reference)))
-                    unmatched_path = (args.unmatched_file if args.unmatched_file
+                    unmatched_path = (args.unmatched if args.unmatched is not True
                                       else _unmatched_merge_output_path(in_path, out_fmt))
                     unmatched_bam = _open_unmatched_bam(
                         unmatched_path, in_bam, out_fmt, args.threads, args.reference)

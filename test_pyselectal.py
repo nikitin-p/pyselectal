@@ -707,21 +707,36 @@ class TestUnmatched:
         assert _count_reads_in_bam(out_file) == 3
         assert _count_reads_in_bam(unmatched) == 7
 
-    def test_f_custom_unmatched_file(self, tmp_path):
-        """-f FILE writes unmatched alignments to specified file."""
+    def test_u_custom_unmatched_file(self, tmp_path):
+        """-u FILE writes unmatched alignments to specified file."""
         os.chdir(str(tmp_path))
         custom_unmatched = str(tmp_path / "my_unmatched.bam")
         out_file = str(tmp_path / "matched.bam")
-        main(["-i", SE_BAM, "-s", "1Sg", "-f", custom_unmatched, "-o", out_file])
+        main(["-i", SE_BAM, "-s", "1Sg", "-u", custom_unmatched, "-o", out_file])
         assert os.path.exists(custom_unmatched)
         assert _count_reads_in_bam(custom_unmatched) == 7
         assert not os.path.exists(str(tmp_path / "test_softclip_se_unmatched.bam"))
 
-    def test_f_implies_unmatched(self):
-        """-f FILE implies -u/--unmatched."""
-        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-f", "out.bam"])
+    def test_u_with_file_argument(self):
+        """-u FILE sets unmatched to the filename."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-u", "out.bam"])
+        assert args.unmatched == "out.bam"
+
+    def test_u_without_file_argument(self):
+        """-u without FILE sets unmatched to True."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-u"])
         assert args.unmatched is True
-        assert args.unmatched_file == "out.bam"
+
+    def test_u_and_o_same_file_conflict(self):
+        """-u FILE and -o FILE cannot specify the same file."""
+        with pytest.raises(SystemExit):
+            parse_args(["-i", "in.bam", "-s", "1Sg", "-u", "out.bam", "-o", "out.bam"])
+
+    def test_u_and_o_different_files_ok(self):
+        """-u FILE and -o FILE with different paths should work."""
+        args = parse_args(["-i", "in.bam", "-s", "1Sg", "-u", "unmatched.bam", "-o", "matched.bam"])
+        assert args.unmatched == "unmatched.bam"
+        assert args.output == "matched.bam"
 
 
 # ---------------------------------------------------------------------------
