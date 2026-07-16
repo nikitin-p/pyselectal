@@ -464,6 +464,12 @@ def parse_args(argv):
         if u_path == o_path:
             parser.error("-u/--unmatched and -o/--output cannot specify the same file.")
 
+    # Explicit -u FILE with multiple inputs would overwrite the file for each input
+    if (args.unmatched is not None and args.unmatched is not True
+            and len(args.input_files) > 1):
+        parser.error("-u/--unmatched FILE with multiple inputs is not supported; "
+                     "use -u without a filename for per-input unmatched files.")
+
     # Prevent filename conflict between -x FILE and -o FILE
     if (args.exclude is not None and args.exclude is not True
             and args.output is not None):

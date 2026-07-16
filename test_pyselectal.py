@@ -77,6 +77,17 @@ class TestInputFlag:
         args = parse_args(["-i", "a.bam,b.bam", "-a", "-o", "outdir"])
         assert args.output == "outdir"
 
+    def test_unmatched_file_with_multi_input_rejected(self):
+        """Using -u FILE with multiple inputs should fail (would overwrite)."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "a.bam,b.bam", "-s", "Sg", "-u", "unmatched.bam"])
+        assert exc.value.code == 2
+
+    def test_unmatched_auto_with_multi_input_allowed(self):
+        """Using -u without filename with multiple inputs is allowed."""
+        args = parse_args(["-i", "a.bam,b.bam", "-s", "Sg", "-u"])
+        assert args.unmatched is True
+
 
 class TestNoNameSort:
     def test_no_name_sort_flag(self):
