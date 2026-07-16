@@ -312,6 +312,13 @@ def parse_spec(spec_str):
             n_val = 0
             m_val = None
 
+    # Validate regex pattern if present
+    if seq:
+        try:
+            re.compile(seq, re.IGNORECASE)
+        except re.error as e:
+            die(f"Invalid regex in spec '{raw}': {e}")
+
     # Normalized lowercase raw for file naming
     norm = raw.lower()
 
@@ -460,6 +467,10 @@ def parse_args(argv):
     if (args.output is not None and args.select is not None
             and len(args.select.split(",")) > 1 and not args.merge and not args.exclude):
         parser.error("-o/--output with multiple --select specs requires -m/--merge or -x/--exclude.")
+
+    # -o with multiple input files is only valid for --all (where -o is a directory)
+    if args.output is not None and len(args.input_files) > 1 and not args.all:
+        parser.error("-o/--output cannot be used with multiple input files (except in --all mode).")
 
     if args.threads < 1:
         parser.error("--threads must be >= 1.")

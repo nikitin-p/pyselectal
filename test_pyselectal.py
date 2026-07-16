@@ -60,6 +60,23 @@ class TestInputFlag:
         args = parse_args(["-i", "-", "-c"])
         assert args.input_files == ["-"]
 
+    def test_output_with_multi_input_select_rejected(self):
+        """Using -o with multiple inputs in --select mode should fail."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "a.bam,b.bam", "-s", "Sg", "-o", "out.bam"])
+        assert exc.value.code == 2
+
+    def test_output_with_multi_input_count_rejected(self):
+        """Using -o with multiple inputs in --count mode should fail."""
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["-i", "a.bam,b.bam", "-c", "-o", "out.tsv"])
+        assert exc.value.code == 2
+
+    def test_output_with_multi_input_all_allowed(self):
+        """Using -o with multiple inputs in --all mode is allowed (directory)."""
+        args = parse_args(["-i", "a.bam,b.bam", "-a", "-o", "outdir"])
+        assert args.output == "outdir"
+
 
 class TestNoNameSort:
     def test_no_name_sort_flag(self):
@@ -394,6 +411,10 @@ class TestParseSpec:
         assert r["m"] == 3
         assert r["seq"] == "GG"
 
+    def test_invalid_regex_rejected(self):
+        """Invalid regex patterns are rejected at parse time."""
+        with pytest.raises(SystemExit):
+            parse_spec("S[unclosed")
 
 
 # ---------------------------------------------------------------------------
