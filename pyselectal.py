@@ -187,18 +187,18 @@ def get_5prime_cigar(aln):
 
 def _other_type(t):
     """Determine the 'other' category for a collapsed type string."""
-    return "other_mapped" if "M" in t else "other_soft_clipped"
+    return "other_matched" if "M" in t else "other_soft_clipped"
 
 
-def classify_5prime_type(aln, mapped_prefix=5):
+def classify_5prime_type(aln, matched_prefix=5):
     """
     Classify an alignment's 5' end type as a string.
 
     Returns e.g. '1Sg', '2Sgg', '3Saac', '75Mgaggg', or None for unmapped.
     For soft-clipped reads: {length}S{sequence} (forward-strand sequence,
     reverse reads report the reverse-complement of the 3'-end soft-clip).
-    For mapped 5' ends: {match_length}M{first_N_bases} where N=mapped_prefix.
-    If mapped_prefix=0: returns {match_length}M with no sequence.
+    For matched 5' ends: {match_length}M{first_N_bases} where N=matched_prefix.
+    If matched_prefix=0: returns {match_length}M with no sequence.
     """
     if aln.is_unmapped:
         return None
@@ -214,12 +214,12 @@ def classify_5prime_type(aln, mapped_prefix=5):
             sc_seq = seq[:length]
         return f"{length}S{sc_seq.lower()}"
     elif op == MATCH:
-        if mapped_prefix == 0:
+        if matched_prefix == 0:
             return f"{length}M"
         seq = aln.query_sequence
         if not seq:
             return f"{length}M"
-        n = min(mapped_prefix, length)
+        n = min(matched_prefix, length)
         if aln.is_reverse:
             pfx = revcomp(seq[-n:])
         else:
@@ -408,7 +408,7 @@ def parse_args(argv):
     parser.add_argument("--collapse-threshold", type=float, default=1.0,
                         metavar="PCT",
                         help="Collapse categories below PCT%% into 'other' row in --count output (default: 1; 0 = off).")
-    parser.add_argument("--mapped-prefix", type=int, default=5,
+    parser.add_argument("--matched-prefix", type=int, default=5,
                         metavar="N",
                         help="Bases of 5' matched sequence to show in --count output (default: 5; 0 = length only).")
 
@@ -493,12 +493,12 @@ def parse_args(argv):
     if args.collapse_threshold < 0 or args.collapse_threshold >= 100:
         parser.error("--collapse-threshold must be in [0, 100).")
 
-    if args.mapped_prefix < 0:
-        parser.error("--mapped-prefix must be >= 0.")
+    if args.matched_prefix < 0:
+        parser.error("--matched-prefix must be >= 0.")
 
-    # --mapped-prefix only with --count or --all
-    if args.mapped_prefix != 5 and args.select is not None:
-        parser.error("--mapped-prefix can only be used with -c/--count or -a/--all.")
+    # --matched-prefix only with --count or --all
+    if args.matched_prefix != 5 and args.select is not None:
+        parser.error("--matched-prefix can only be used with -c/--count or -a/--all.")
 
     if args.cram and not args.reference:
         parser.error("-C/--cram requires -r/--reference.")
@@ -945,23 +945,23 @@ def _count_output_path(in_path, args):
     return f"{stem}_5prime_counts.tsv"
 
 
-def process_count_se(in_bam, mapped_prefix=5):
+def process_count_se(in_bam, matched_prefix=5):
     """Count 5' end types for all alignments. Returns dict {type: count}."""
     counts = {}
     for aln in in_bam.fetch(until_eof=True):
-        t = classify_5prime_type(aln, mapped_prefix=mapped_prefix)
+        t = classify_5prime_type(aln, matched_prefix=matched_prefix)
         if t is not None:
             counts[t] = counts.get(t, 0) + 1
     return counts
 
 
-def process_count_pe(in_bam, mapped_prefix=5):
+def process_count_pe(in_bam, matched_prefix=5):
     """Count 5' end types for R1 alignments only. Returns dict {type: count}."""
     counts = {}
     for aln in in_bam.fetch(until_eof=True):
         if not aln.is_read1:
             continue
-        t = classify_5prime_type(aln, mapped_prefix=mapped_prefix)
+        t = classify_5prime_type(aln, matched_prefix=matched_prefix)
         if t is not None:
             counts[t] = counts.get(t, 0) + 1
     return counts
@@ -971,7 +971,7 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
     """Write type\\tcount TSV sorted by descending count.
 
     Categories whose percentage of total is strictly below collapse_threshold
-    are collapsed into 'other_soft_clipped (<N%)' or 'other_mapped (<N%)'
+    are collapsed into 'other_soft_clipped (<N%)' or 'other_matched (<N%)'
     rows appended at the end. collapse_threshold=0 disables collapsing.
     """
     total = sum(counts.values())
@@ -1001,7 +1001,7 @@ def write_count_tsv(counts, out_path, collapse_threshold=1.0):
             label = f"other_soft_clipped (<{collapse_threshold:g}%)"
             f.write(f"{label}\t{other_sc_count}\n")
         if other_m_count > 0:
-            label = f"other_mapped (<{collapse_threshold:g}%)"
+            label = f"other_matched (<{collapse_threshold:g}%)"
             f.write(f"{label}\t{other_m_count}\n")
 
 
@@ -1018,9 +1018,9 @@ def run_count(args):
 
             try:
                 if args.paired:
-                    counts = process_count_pe(in_bam, mapped_prefix=args.mapped_prefix)
+                    counts = process_count_pe(in_bam, matched_prefix=args.matched_prefix)
                 else:
-                    counts = process_count_se(in_bam, mapped_prefix=args.mapped_prefix)
+                    counts = process_count_se(in_bam, matched_prefix=args.matched_prefix)
             finally:
                 in_bam.close()
 
@@ -1059,7 +1059,7 @@ def process_all_se(in_bam, in_path, args, collapse_types=None):
     open_files = {}
     try:
         for aln in in_bam.fetch(until_eof=True):
-            t = classify_5prime_type(aln, mapped_prefix=args.mapped_prefix)
+            t = classify_5prime_type(aln, matched_prefix=args.matched_prefix)
             if t is None:
                 continue
             effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
@@ -1079,7 +1079,7 @@ def _flush_pe_group_all(records, in_bam, in_path, args, open_files, collapse_typ
     for r in records:
         if not r.is_read1:
             continue
-        t = classify_5prime_type(r, mapped_prefix=args.mapped_prefix)
+        t = classify_5prime_type(r, matched_prefix=args.matched_prefix)
         if t is None:
             continue
         effective_t = _other_type(t) if (collapse_types and t in collapse_types) else t
@@ -1131,9 +1131,9 @@ def run_all(args):
                 in_bam = pysam.AlignmentFile(actual_in, _pysam_read_mode(in_fmt), **kw)
                 try:
                     if args.paired:
-                        counts = process_count_pe(in_bam, mapped_prefix=args.mapped_prefix)
+                        counts = process_count_pe(in_bam, matched_prefix=args.matched_prefix)
                     else:
-                        counts = process_count_se(in_bam, mapped_prefix=args.mapped_prefix)
+                        counts = process_count_se(in_bam, matched_prefix=args.matched_prefix)
                 finally:
                     in_bam.close()
                 total = sum(counts.values())

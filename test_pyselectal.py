@@ -998,7 +998,7 @@ class TestCountEndToEnd:
 
 
 # ---------------------------------------------------------------------------
-# Step 4 additions: --mapped-prefix and --collapse-threshold
+# Step 4 additions: --matched-prefix and --collapse-threshold
 # ---------------------------------------------------------------------------
 
 def _get_r2_alns(bam_path):
@@ -1008,10 +1008,10 @@ def _get_r2_alns(bam_path):
 
 
 class TestMappedPrefix:
-    """Tests for classify_5prime_type() MATCH case with --mapped-prefix."""
+    """Tests for classify_5prime_type() MATCH case with --matched-prefix."""
 
     def test_mapped_default_prefix_format(self):
-        """Default mapped_prefix=5: returns '{length}M{bases}' for a 76M R2."""
+        """Default matched_prefix=5: returns '{length}M{bases}' for a 76M R2."""
         import re
         alns = _get_r2_alns(PE_BAM)
         fwd_alns = [a for a in alns if not a.is_reverse]
@@ -1020,60 +1020,60 @@ class TestMappedPrefix:
         assert re.match(r'^\d+M[acgtn]+$', result), f"Unexpected format: {result!r}"
 
     def test_mapped_zero_prefix_no_sequence(self):
-        """mapped_prefix=0: returns '{length}M' without bases."""
+        """matched_prefix=0: returns '{length}M' without bases."""
         import re
         alns = _get_r2_alns(PE_BAM)
         fwd_alns = [a for a in alns if not a.is_reverse]
         assert fwd_alns
-        result = classify_5prime_type(fwd_alns[0], mapped_prefix=0)
+        result = classify_5prime_type(fwd_alns[0], matched_prefix=0)
         assert re.match(r'^\d+M$', result), f"Unexpected format: {result!r}"
 
-    def test_mapped_prefix_length_cap(self):
-        """mapped_prefix > match length: at most match_length bases shown."""
+    def test_matched_prefix_length_cap(self):
+        """matched_prefix > match length: at most match_length bases shown."""
         alns = _get_r2_alns(PE_BAM)
         fwd_alns = [a for a in alns if not a.is_reverse]
         assert fwd_alns
         aln = fwd_alns[0]
-        result = classify_5prime_type(aln, mapped_prefix=100)
+        result = classify_5prime_type(aln, matched_prefix=100)
         m_idx = result.index('M')
         match_len = int(result[:m_idx])
         seq_part = result[m_idx + 1:]
         assert len(seq_part) <= match_len
 
-    def test_mapped_prefix_shorter_than_match_is_prefix_of_longer(self):
-        """mapped_prefix=3 sequence is prefix of mapped_prefix=10 sequence."""
+    def test_matched_prefix_shorter_than_match_is_prefix_of_longer(self):
+        """matched_prefix=3 sequence is prefix of matched_prefix=10 sequence."""
         alns = _get_r2_alns(PE_BAM)
         fwd_alns = [a for a in alns if not a.is_reverse]
         assert fwd_alns
         aln = fwd_alns[0]
-        r3 = classify_5prime_type(aln, mapped_prefix=3)
-        r10 = classify_5prime_type(aln, mapped_prefix=10)
+        r3 = classify_5prime_type(aln, matched_prefix=3)
+        r10 = classify_5prime_type(aln, matched_prefix=10)
         seq3 = r3[r3.index('M') + 1:]
         seq10 = r10[r10.index('M') + 1:]
         assert seq10.startswith(seq3)
 
-    def test_mapped_prefix_reverse_strand(self):
+    def test_matched_prefix_reverse_strand(self):
         """Reverse-strand R2: result is forward-strand orientation (revcomp of stored)."""
         import re
         alns = _get_r2_alns(PE_BAM)
         rev_alns = [a for a in alns if a.is_reverse]
         if not rev_alns:
             pytest.skip("No reverse-strand R2 in PE BAM")
-        result = classify_5prime_type(rev_alns[0], mapped_prefix=3)
+        result = classify_5prime_type(rev_alns[0], matched_prefix=3)
         assert re.match(r'^\d+M[acgtn]+$', result), f"Unexpected format: {result!r}"
 
-    def test_mapped_prefix_cli_zero(self, tmp_path):
-        """--mapped-prefix 0: all M-type rows are '{length}M' with no bases."""
+    def test_matched_prefix_cli_zero(self, tmp_path):
+        """--matched-prefix 0: all M-type rows are '{length}M' with no bases."""
         import re
         out = str(tmp_path / "counts.tsv")
-        main(["-i", PE_BAM, "-c", "--mapped-prefix", "0", "-o", out])
+        main(["-i", PE_BAM, "-c", "--matched-prefix", "0", "-o", out])
         _, rows = _read_tsv(out)
         m_rows = [(t, c) for t, c in rows if 'M' in t and not t.startswith('other')]
         for t, _ in m_rows:
             assert re.match(r'^\d+M$', t), f"Unexpected M-type: {t!r}"
 
-    def test_mapped_prefix_cli_default(self, tmp_path):
-        """Default --mapped-prefix 5: M-type rows include base sequence."""
+    def test_matched_prefix_cli_default(self, tmp_path):
+        """Default --matched-prefix 5: M-type rows include base sequence."""
         import re
         out = str(tmp_path / "counts.tsv")
         main(["-i", PE_BAM, "-c", "-o", out])
@@ -1083,21 +1083,21 @@ class TestMappedPrefix:
         for t, _ in m_rows:
             assert re.match(r'^\d+M[acgtn]+$', t), f"Unexpected M-type: {t!r}"
 
-    def test_mapped_prefix_parse_args_defaults(self):
+    def test_matched_prefix_parse_args_defaults(self):
         args = parse_args(["-i", "in.bam", "-c"])
-        assert args.mapped_prefix == 5
+        assert args.matched_prefix == 5
 
-    def test_mapped_prefix_parse_args_custom(self):
-        args = parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "3"])
-        assert args.mapped_prefix == 3
+    def test_matched_prefix_parse_args_custom(self):
+        args = parse_args(["-i", "in.bam", "-c", "--matched-prefix", "3"])
+        assert args.matched_prefix == 3
 
-    def test_mapped_prefix_zero_valid(self):
-        args = parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "0"])
-        assert args.mapped_prefix == 0
+    def test_matched_prefix_zero_valid(self):
+        args = parse_args(["-i", "in.bam", "-c", "--matched-prefix", "0"])
+        assert args.matched_prefix == 0
 
-    def test_mapped_prefix_negative_rejected(self):
+    def test_matched_prefix_negative_rejected(self):
         with pytest.raises(SystemExit) as exc:
-            parse_args(["-i", "in.bam", "-c", "--mapped-prefix", "-1"])
+            parse_args(["-i", "in.bam", "-c", "--matched-prefix", "-1"])
         assert exc.value.code == 2
 
 
@@ -1211,9 +1211,9 @@ class TestCollapseThreshold:
         _, rows = _read_tsv(out)
         row_dict = dict(rows)
         assert "other_soft_clipped (<10%)" in row_dict
-        assert "other_mapped (<10%)" in row_dict
+        assert "other_matched (<10%)" in row_dict
         assert row_dict["other_soft_clipped (<10%)"] == 5
-        assert row_dict["other_mapped (<10%)"] == 5
+        assert row_dict["other_matched (<10%)"] == 5
         assert "3Sggg" not in row_dict
         assert "10Mggggg" not in row_dict
 
@@ -1500,7 +1500,7 @@ class TestAllCollapse:
         out_dir = str(tmp_path / "split")
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "0", "-o", out_dir])
         assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other_soft_clipped.bam"))
-        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other_mapped.bam"))
+        assert not os.path.exists(os.path.join(out_dir, "test_softclip_se_other_matched.bam"))
         assert os.path.exists(os.path.join(out_dir, "test_softclip_se_3sggg.bam"))
         assert os.path.exists(os.path.join(out_dir, "test_softclip_se_4sgggg.bam"))
         assert _count_reads_in_bam(os.path.join(out_dir, "test_softclip_se_3sggg.bam")) == 2
@@ -1573,25 +1573,25 @@ class TestAllCollapse:
 
         stem = "mixed"
         sc_other = os.path.join(out_dir, f"{stem}_other_soft_clipped.bam")
-        m_other  = os.path.join(out_dir, f"{stem}_other_mapped.bam")
+        m_other  = os.path.join(out_dir, f"{stem}_other_matched.bam")
 
         assert os.path.exists(sc_other), "_other_soft_clipped.bam not created"
-        assert os.path.exists(m_other),  "_other_mapped.bam not created"
+        assert os.path.exists(m_other),  "_other_matched.bam not created"
         assert _count_reads_in_bam(sc_other) == 2
         assert _count_reads_in_bam(m_other)  == 2
 
     def test_all_collapse_only_soft_no_mapped_other(self, tmp_path):
-        """When all rare types are S-type, _other_mapped.bam is not created."""
+        """When all rare types are S-type, _other_matched.bam is not created."""
         out_dir = str(tmp_path / "split")
         main(["-i", SE_BAM, "-a", "--collapse-threshold", "25", "-o", out_dir])
-        mapped_other = os.path.join(out_dir, "test_softclip_se_other_mapped.bam")
+        mapped_other = os.path.join(out_dir, "test_softclip_se_other_matched.bam")
         assert not os.path.exists(mapped_other)
 
-    def test_all_collapse_respects_nondefault_mapped_prefix(self, tmp_path):
-        """Rare mapped types must collapse even when --mapped-prefix != 5.
+    def test_all_collapse_respects_nondefault_matched_prefix(self, tmp_path):
+        """Rare mapped types must collapse even when --matched-prefix != 5.
 
         Pass 1 (counting) and pass 2 (routing) must classify with the same
-        mapped_prefix, otherwise the collapse_types keys never match the
+        matched_prefix, otherwise the collapse_types keys never match the
         routed types and rare M-types are never collapsed.
         """
         bam_path = str(tmp_path / "mapped.bam")
@@ -1619,11 +1619,11 @@ class TestAllCollapse:
                 _write(f"MAP_{i}", [(0, 76)], "G" * 5 + "A" * 71)
 
         out_dir = str(tmp_path / "split")
-        main(["-i", bam_path, "-a", "--mapped-prefix", "3",
+        main(["-i", bam_path, "-a", "--matched-prefix", "3",
               "--collapse-threshold", "25", "-o", out_dir])
 
-        mapped_other = os.path.join(out_dir, "mapped_other_mapped.bam")
-        assert os.path.exists(mapped_other), "_other_mapped.bam not created"
+        mapped_other = os.path.join(out_dir, "mapped_other_matched.bam")
+        assert os.path.exists(mapped_other), "_other_matched.bam not created"
         assert _count_reads_in_bam(mapped_other) == 2
         # The rare type must not also get its own per-type file.
         assert not os.path.exists(os.path.join(out_dir, "mapped_76mggggg.bam"))

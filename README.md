@@ -346,7 +346,7 @@ samtools view -C -T ref.fa in.bam | pyselectal.py -i - --select Sg -r ref.fa -o 
 
 ## Resource usage
 
-Benchmarks on three SE BAM files with 5 million alignments each (Intel Xeon Processor Icelake, ~2 GHz):
+Benchmarks on three SE BAM files with 5 million alignments each (Intel Xeon Processor Icelake, 2 GHz):
 
 | Mode | Time (avg) | Memory |
 | --- | --- | --- |
