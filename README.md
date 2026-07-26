@@ -315,7 +315,7 @@ pyselectal.py -i in.bam -s Sg -x
 12. Exclude all soft-clipped reads across multiple specs and write the result to a named file:
 
 ```bash
-pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x                   # → in_excluded.bam
+pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x                  # in_excluded.bam
 pyselectal.py -i in.bam -s Sg,Sgg,Sggg -x non_g.bam        # explicit filename
 # output: non_g.bam
 ```
