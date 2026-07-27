@@ -1,7 +1,7 @@
 # pyselectal
 
 <p align="right">
-<a href="https://doi.org/10.5281/zenodo.21500603"><img src="https://zenodo.org/badge/1118900143.svg" alt="DOI"></a>
+<a href="https://doi.org/10.5281/zenodo.21500603"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.21500603.svg" alt="DOI"></a>
 </p>
 
 Pyselectal (**Py**thon **select**ion of **al**ignments) is a Python script for filtering alignments in the BAM, SAM or [CRAM](https://samtools.github.io/hts-specs/CRAMv3.pdf) format by the length and sequence of the soft-clipped or matched 5′ end of single-end reads or forward reads of read pairs. You can select alignments matching a 5′-end pattern, profile the distribution of 5′-end types or split an alignment file per 5′-end type.
