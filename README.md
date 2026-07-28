@@ -49,7 +49,20 @@ pip install pysam
 
 ## Installation
 
-Clone the repository and make `pyselectal.py` executable:
+### Option 1: Install a fixed release version (recommended for reproducibility)
+
+Download a specific release from the [Releases page](https://github.com/nikitin-p/pyselectal/releases):
+
+```bash
+# Download and extract the release archive (replace v1.0 with the desired version)
+curl -sL https://github.com/nikitin-p/pyselectal/archive/refs/tags/v1.0.tar.gz | tar xz
+cd pyselectal-1.0
+chmod +x pyselectal.py
+```
+
+### Option 2: Install the latest development version
+
+Clone the repository to get the most recent code (may include unreleased changes):
 
 ```bash
 git clone https://github.com/nikitin-p/pyselectal.git
@@ -57,9 +70,13 @@ cd pyselectal
 chmod +x pyselectal.py
 ```
 
-Then, you can run it directly:
+### Running
 
-`pyselectal.py --help`
+After installation via either option, you can run the tool directly:
+
+```bash
+./pyselectal.py --help
+```
 
 ## Usage
 
