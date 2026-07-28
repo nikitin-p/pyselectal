@@ -56,7 +56,7 @@ Download a specific release from the [Releases page](https://github.com/nikitin-
 ```bash
 # Download and extract the release archive (replace v1.0 with the desired version)
 curl -sL https://github.com/nikitin-p/pyselectal/archive/refs/tags/v1.0.tar.gz | tar xz
-cd pyselectal-1.0
+cd pyselectal-v1.0
 chmod +x pyselectal.py
 ```
 
